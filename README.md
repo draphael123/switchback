@@ -4,9 +4,11 @@ A cozy narrow-gauge railway builder. You survey a line from **Lowthwaite** in th
 valley up to **Crag End** on the mountain shoulder, then sit back and watch the
 train work its way up what you built.
 
+**▶ Play: [switchback-mu.vercel.app](https://switchback-mu.vercel.app)**
+
 ![A completed line in summer](season-summer.jpg)
 
-Single-file (`index.html`), Three.js via CDN, no build step. Port **5773**.
+Single-file (`index.html`), Three.js via CDN, no build step. Port **5773** locally.
 
 Trace the line in the shot above: out of Lowthwaite by the river, east across
 the hillside, a horseshoe at the board's edge, back west, and up into Crag End.
