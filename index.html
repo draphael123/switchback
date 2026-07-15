@@ -1,0 +1,1996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SWITCHBACK</title>
+<script>
+// Catches uncaught MODULE errors the preview console tool silently misses.
+window.__err = null;
+window.addEventListener('error', e => { window.__err = (e.error && e.error.stack) || e.message; });
+window.addEventListener('unhandledrejection', e => { window.__err = String((e.reason && e.reason.stack) || e.reason); });
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root{
+    --brass:#c8913f; --brass2:#e8bd6d; --room:#0d0b09; --panel:#171310;
+    --line:#33291f; --ink:#ece3d4; --dim:#9a8a76; --good:#7fbf5a; --warn:#dfa63c; --bad:#d0533f;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; background:var(--room); color:var(--ink);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; overflow:hidden;}
+  canvas{display:block; width:100vw; height:100vh; outline:none;}
+
+  /* Room vignette — sells "a model on a table in a dark room". Free, no extra pass. */
+  #grade{position:absolute; inset:0; pointer-events:none; z-index:1;
+    background:
+      radial-gradient(ellipse 120% 95% at 50% 46%, rgba(0,0,0,0) 30%, rgba(6,3,0,.72) 100%),
+      linear-gradient(180deg, rgba(255,196,120,.07) 0%, rgba(0,0,0,0) 40%);}
+  #hud{position:absolute; inset:0; z-index:2; pointer-events:none;}
+  .panel{background:rgba(23,19,16,.92); border:1px solid var(--line); border-radius:4px;
+    backdrop-filter:blur(3px);}
+
+  #title{position:absolute; top:16px; left:18px; padding:11px 15px;}
+  h1{font-size:19px; letter-spacing:.36em; font-weight:800; color:var(--brass2);}
+  .sub{font-size:9px; letter-spacing:.17em; color:var(--dim); margin-top:5px;}
+
+  #tools{position:absolute; top:16px; left:50%; transform:translateX(-50%);
+    display:flex; gap:6px; padding:7px; pointer-events:auto;}
+  .tool{background:#221b15; border:1px solid var(--line); color:var(--dim); cursor:pointer;
+    padding:8px 14px; border-radius:3px; font:inherit; font-size:10px; letter-spacing:.12em;
+    transition:.12s;}
+  .tool:hover:not(:disabled){border-color:var(--brass); color:var(--ink);}
+  .tool.on{background:var(--brass); border-color:var(--brass2); color:#160f07; font-weight:700;}
+  .tool:disabled{opacity:.32; cursor:default;}
+
+  #stats{position:absolute; top:16px; right:18px; width:250px; padding:12px 14px;}
+  #stats h2{font-size:9px; letter-spacing:.22em; color:var(--brass2); margin-bottom:8px;}
+  .row{display:flex; justify-content:space-between; align-items:baseline;
+    font-size:11px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05);}
+  .row:last-child{border-bottom:none;}
+  .k{color:var(--dim); letter-spacing:.07em; font-size:10px;}
+  .v{color:var(--ink); font-weight:700;}
+  .v.good{color:var(--good);} .v.warn{color:var(--warn);} .v.bad{color:var(--bad);}
+
+  #obj{position:absolute; top:210px; right:18px; width:250px; padding:12px 14px;}
+  #obj h2{font-size:9px; letter-spacing:.22em; color:var(--brass2); margin-bottom:8px;}
+  #objText{font-size:10px; line-height:1.7; color:var(--dim);}
+  #objText b{color:var(--ink); font-weight:700;}
+  #objState{margin-top:9px; font-size:10px; letter-spacing:.08em; font-weight:700; color:var(--warn);}
+  #pips{display:flex; gap:5px; margin-top:10px;}
+  .pip{flex:1; text-align:center; font-size:8px; letter-spacing:.1em; padding:5px 0;
+    border:1px solid var(--line); border-radius:2px; color:var(--dim); background:#1d1813;}
+  .pip.held{background:rgba(127,191,90,.16); border-color:var(--good); color:var(--good); font-weight:700;}
+  .pip.now{border-color:var(--brass2); color:var(--brass2);}
+
+  #wx{position:absolute; top:376px; right:18px; width:250px; padding:12px 14px;}
+  #wx h2{font-size:9px; letter-spacing:.22em; color:var(--brass2); margin-bottom:9px;}
+  #wxTop{display:flex; justify-content:space-between; align-items:center;}
+  #wxSeason{font-size:13px; font-weight:800; letter-spacing:.14em; color:var(--ink);}
+  #wxRail{font-size:9px; letter-spacing:.1em; color:var(--dim); margin-top:3px;}
+  #wxHold{font-size:24px; font-weight:800; color:var(--brass2); letter-spacing:.02em;}
+  #wxNote{font-size:9px; color:var(--dim); margin-top:6px; line-height:1.5;}
+  .rule2{height:1px; background:rgba(255,255,255,.07); margin:11px 0;}
+  #wxRulLbl{font-size:9px; letter-spacing:.18em; color:var(--brass2); margin-bottom:7px;}
+  #segRul{display:flex; gap:4px;}
+  #segRul button{flex:1; background:#221b15; border:1px solid var(--line); color:var(--dim);
+    cursor:pointer; padding:7px 0; border-radius:2px; font:inherit; font-size:9px; letter-spacing:.06em;}
+  #segRul button.on{background:var(--brass); border-color:var(--brass2); color:#160f07; font-weight:700;}
+  #segRul button:disabled{opacity:.3; cursor:default;}
+  #wxFit{font-size:9px; color:var(--dim); margin-top:7px; line-height:1.6;}
+
+  #keys{position:absolute; bottom:16px; left:18px; padding:10px 14px; font-size:10px;
+    line-height:1.85; color:var(--dim);}
+  #keys b{color:var(--brass2); font-weight:700;}
+
+  #banner{position:absolute; bottom:74px; left:50%; transform:translateX(-50%);
+    padding:11px 22px; font-size:12px; letter-spacing:.16em; font-weight:700;
+    opacity:0; transition:opacity .35s; text-align:center;}
+  #banner.show{opacity:1;}
+
+  /* ── overlays: opening + settings ───────────────────────────── */
+  .veil{position:absolute; inset:0; z-index:5; display:flex; align-items:center;
+    justify-content:center; pointer-events:auto;
+    background:radial-gradient(ellipse 90% 80% at 50% 50%, rgba(8,5,2,.72) 0%, rgba(5,3,1,.94) 100%);}
+  .veil.hide{display:none;}
+  .card{width:min(560px, 88vw); padding:34px 38px; text-align:center;
+    background:rgba(20,16,13,.95); border:1px solid var(--line); border-radius:6px;
+    box-shadow:0 24px 80px rgba(0,0,0,.7);}
+  .card h1{font-size:34px; letter-spacing:.42em; margin-left:.42em; color:var(--brass2);}
+  .card .rule{height:1px; background:linear-gradient(90deg,transparent,var(--line),transparent); margin:16px 0;}
+  .card .blurb{font-size:12px; line-height:2.0; color:var(--dim); letter-spacing:.04em;}
+  .card .blurb b{color:var(--ink); font-weight:700;}
+  .btns{display:flex; gap:9px; justify-content:center; margin-top:24px; flex-wrap:wrap;}
+  .big{background:var(--brass); border:1px solid var(--brass2); color:#160f07; cursor:pointer;
+    padding:12px 26px; border-radius:3px; font:inherit; font-size:11px; font-weight:800;
+    letter-spacing:.2em; transition:.12s;}
+  .big:hover{background:var(--brass2);}
+  .ghost{background:#221b15; border:1px solid var(--line); color:var(--dim); cursor:pointer;
+    padding:12px 22px; border-radius:3px; font:inherit; font-size:11px; letter-spacing:.2em;
+    transition:.12s;}
+  .ghost:hover{border-color:var(--brass); color:var(--ink);}
+
+  .setRow{display:flex; justify-content:space-between; align-items:center;
+    padding:11px 2px; border-bottom:1px solid rgba(255,255,255,.06); text-align:left;}
+  .setRow:last-of-type{border-bottom:none;}
+  .setRow .lbl{font-size:11px; letter-spacing:.1em; color:var(--ink);}
+  .setRow .hint{font-size:9px; color:var(--dim); letter-spacing:.02em; margin-top:3px; line-height:1.5;}
+  .seg{display:flex; gap:4px; flex-shrink:0; margin-left:14px;}
+  .seg button{background:#221b15; border:1px solid var(--line); color:var(--dim); cursor:pointer;
+    padding:6px 11px; border-radius:2px; font:inherit; font-size:9px; letter-spacing:.1em;}
+  .seg button.on{background:var(--brass); border-color:var(--brass2); color:#160f07; font-weight:700;}
+  #seedIn{background:#221b15; border:1px solid var(--line); color:var(--ink); font:inherit;
+    font-size:10px; width:88px; padding:6px 8px; border-radius:2px; text-align:center;}
+
+  /* ── tutorial ───────────────────────────────────────────────── */
+  #tut{position:absolute; left:18px; bottom:74px; width:310px; padding:14px 16px; z-index:3;
+    pointer-events:auto; display:none;}
+  #tut.show{display:block;}
+  #tutStep{font-size:9px; letter-spacing:.2em; color:var(--brass2); margin-bottom:8px;}
+  #tutText{font-size:11px; line-height:1.8; color:var(--ink);}
+  #tutText b{color:var(--brass2);}
+  #tutFoot{display:flex; justify-content:space-between; align-items:center; margin-top:12px;}
+  #tutSkip{background:none; border:none; color:var(--dim); cursor:pointer; font:inherit;
+    font-size:9px; letter-spacing:.14em; text-decoration:underline; padding:0;}
+  #tutSkip:hover{color:var(--ink);}
+  #tutTick{font-size:9px; letter-spacing:.14em; color:var(--good); opacity:0; transition:.2s;}
+  #tutTick.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="grade"></div>
+<div id="hud">
+  <div id="title" class="panel">
+    <h1>SWITCHBACK</h1>
+    <div class="sub">A NARROW-GAUGE LINE UP A MOUNTAIN</div>
+  </div>
+
+  <div id="tools" class="panel">
+    <button class="tool on" id="tLay">LAY TRACK</button>
+    <button class="tool" id="tUndo">UNDO</button>
+    <button class="tool" id="tClear">CLEAR</button>
+    <button class="tool" id="tRun" disabled>▶ RUN</button>
+  </div>
+
+  <div id="stats" class="panel">
+    <h2>SURVEY</h2>
+    <div class="row"><span class="k">NEXT GRADE</span><span class="v" id="sGrade">—</span></div>
+    <div class="row"><span class="k">WORST SUSTAINED</span><span class="v" id="sRuling">—</span></div>
+    <div class="row"><span class="k">CURVE</span><span class="v" id="sCurve">—</span></div>
+    <div class="row"><span class="k">CUT / FILL</span><span class="v" id="sOffset">0.0 m</span></div>
+    <div class="row"><span class="k">LINE LENGTH</span><span class="v" id="sLen">0 m</span></div>
+    <div class="row"><span class="k">EARTHWORKS</span><span class="v" id="sCost">£0</span></div>
+  </div>
+
+  <div id="obj" class="panel">
+    <h2>OBJECTIVE</h2>
+    <div id="objText">
+      Carry <b>LOWTHWAITE</b> to <b>CRAG END</b> — and keep it open
+      <b>all four seasons</b>.
+    </div>
+    <div id="pips"></div>
+    <div id="objState">NOT CONNECTED</div>
+  </div>
+
+  <div id="wx" class="panel">
+    <h2>THE RAILHEAD TODAY</h2>
+    <div id="wxTop">
+      <div><div id="wxSeason">SUMMER</div><div id="wxRail">DRY RAILS</div></div>
+      <div id="wxHold">9.0%</div>
+    </div>
+    <div id="wxNote">The steepest she'll lift today.</div>
+    <div class="rule2"></div>
+    <div id="wxRulLbl">YOUR RULING GRADE</div>
+    <div class="seg" id="segRul"></div>
+    <div id="wxFit"></div>
+  </div>
+
+  <div id="keys" class="panel">
+    <b>LMB</b> lay a sleeper &nbsp;·&nbsp; <b>Q/E</b> cut / fill &nbsp;·&nbsp; <b>R</b> reset height<br>
+    <b>RMB</b> orbit &nbsp;·&nbsp; <b>MMB</b> pan &nbsp;·&nbsp; <b>WHEEL</b> zoom &nbsp;·&nbsp; <b>BACKSPACE</b> undo &nbsp;·&nbsp; <b>ENTER</b> run
+  </div>
+
+  <div id="banner" class="panel"></div>
+
+  <div id="tut" class="panel">
+    <div id="tutStep">SURVEY LESSON 1</div>
+    <div id="tutText"></div>
+    <div id="tutFoot">
+      <button id="tutSkip">SKIP THE LESSON</button>
+      <span id="tutTick">✓ GOOD</span>
+    </div>
+  </div>
+</div>
+
+<div id="opening" class="veil">
+  <div class="card">
+    <h1>SWITCHBACK</h1>
+    <div class="sub" style="letter-spacing:.3em">A NARROW-GAUGE LINE UP A MOUNTAIN</div>
+    <div class="rule"></div>
+    <div class="blurb">
+      A railway can only climb so hard. Yours manages <b>6 in 100</b> — and the
+      mountain between <b>Lowthwaite</b> and <b>Crag End</b> is nearly three times
+      that.<br><br>
+      So you cannot go straight at it. You go the long way round: out across the
+      hillside, round the head of the valley, and back again — cutting and filling
+      to hold your grade the whole way.<br><br>
+      Then you set the engine going and watch it work.
+    </div>
+    <div class="btns">
+      <button class="big" id="btnTut">BUILD MY FIRST LINE</button>
+      <button class="ghost" id="btnFree">FREE SURVEY</button>
+      <button class="ghost" id="btnSet">SETTINGS</button>
+    </div>
+  </div>
+</div>
+
+<div id="settings" class="veil hide">
+  <div class="card">
+    <h1 style="font-size:20px">SETTINGS</h1>
+    <div class="rule"></div>
+    <div class="setRow">
+      <div><div class="lbl">TILT-SHIFT</div>
+        <div class="hint">The miniature look. Turn off to read the terrain clearly.</div></div>
+      <div class="seg" id="segTS">
+        <button data-v="0">OFF</button><button data-v="1">SUBTLE</button><button data-v="2">FULL</button>
+      </div>
+    </div>
+    <div class="setRow">
+      <div><div class="lbl">SHADOWS</div>
+        <div class="hint">Off will help an older machine.</div></div>
+      <div class="seg" id="segSh"><button data-v="0">OFF</button><button data-v="1">ON</button></div>
+    </div>
+    <div class="setRow">
+      <div><div class="lbl">GRADE TINT</div>
+        <div class="hint">Colours the ballast where the line is working hard.</div></div>
+      <div class="seg" id="segGT"><button data-v="0">OFF</button><button data-v="1">ON</button></div>
+    </div>
+    <div class="setRow">
+      <div><div class="lbl">TREES</div>
+        <div class="hint">Fewer trees, clearer survey.</div></div>
+      <div class="seg" id="segTr">
+        <button data-v="0">SPARSE</button><button data-v="1">NORMAL</button><button data-v="2">DENSE</button>
+      </div>
+    </div>
+    <div class="setRow">
+      <div><div class="lbl">THE MOUNTAIN</div>
+        <div class="hint">Every board is checked to be climbable before you see it.</div></div>
+      <div class="seg">
+        <input id="seedIn" type="text" spellcheck="false">
+        <button id="btnSeed">GO</button>
+        <button id="btnRoll">ROLL</button>
+      </div>
+    </div>
+    <div class="btns"><button class="big" id="btnBack">BACK</button></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// ───────────────────────────────────────────────────────────── constants
+const BW = 52, BD = 38, CELL = 0.5;             // baseboard, in model metres
+const NX = Math.round(BW/CELL), NZ = Math.round(BD/CELL);
+const GX = NX+1, GZ = NZ+1;
+const SNAP = 1.0;                                // survey peg grid
+
+// The ruling grade is the SURVEYOR'S promise, not a law of physics: you declare
+// how hard your line will ever climb, and the survey holds you to it. Steeper =
+// shorter and cheaper, but only open in good weather. This is the decision the
+// whole game now turns on.
+const RULING_MAX = 0.06;              // steepest a line may ever be declared
+const RULING_OPTS = [
+  { g:0.06, name:'BOLD',     blurb:'Shortest line. Fair weather only.' },
+  { g:0.05, name:'STANDARD', blurb:'A working compromise.' },
+  { g:0.04, name:'GENTLE',   blurb:'Long, and open all year — if it fits.' },
+];
+let ruling = 0.06;
+const WARN_GRADE = 0.045;
+const MAX_DEFLECT = 55 * Math.PI/180;            // per-peg turn; keeps radii sane
+
+const HALF_W    = 1.0;     // formation half-width
+const BATTER    = 2.0;     // side-slope reach of cut/fill
+const BRIDGE_H  = 1.9;     // fill deeper than this becomes a trestle instead
+const TUNNEL_D  = 3.0;     // cut deeper than this becomes a tunnel instead
+const MAX_EW    = 5.0;     // deepest cutting / highest embankment that's buildable
+const STATION_R = 3.2;     // how close a peg must be to count as a terminus
+// Vertical stack at the rail head, all relative to a peg's y:
+//   formation (terrain) −0.03 · ballast 0.00 · sleepers 0.00–0.06 · rails 0.075
+// Any mismatch here shows up as track visibly hovering over its own trackbed.
+const FORM_DROP = 0.03;
+
+const V_MAX = 5.5, G = 9.8;
+// Tractive effort holds FLAT until she nears line speed, then tapers. The old
+// linear falloff from zero tied climbing speed to adhesion margin, so any line
+// built near the day's limit crawled — fatal, because the weather system only
+// bites when the limit IS close. Terminal speed is set by drag instead, so a
+// thin margin still runs at a watchable pace and the stall stays a clean edge.
+const DRAG = 0.006;
+
+// ── adhesion ────────────────────────────────────────────────────────────────
+// Real adhesion limit: the engine can pull until its driving wheels slip, so
+//     stall grade = μ · (adhesive weight / total weight)
+// One formula covers BOTH weather (μ) and load (the weight ratio), which is why
+// hanging extra wagons on the back will work without touching this again.
+const LOCO_M = 6, WAGON_M = 2;
+const SEASONS = [
+  { name:'SUMMER', rail:'DRY RAILS',    mu:0.150, wagons:2 },   // holds ~9.0%
+  { name:'AUTUMN', rail:'WET LEAVES',   mu:0.108, wagons:2 },   // holds ~6.5%
+  { name:'WINTER', rail:'FROST',        mu:0.073, wagons:2 },   // holds ~4.4%
+  { name:'SPRING', rail:'THAW — WET',   mu:0.090, wagons:2 },   // holds ~5.4%
+];
+let season = 0;
+let seasonsHeld = [false,false,false,false];
+const adhesiveFrac = (w)=> LOCO_M / (LOCO_M + w*WAGON_M);
+// The steepest grade today's railhead will take. This is the number the whole
+// weather system exists to produce.
+function holdGrade(s){
+  const S = SEASONS[s===undefined?season:s];
+  return S.mu * adhesiveFrac(S.wagons);
+}
+// Tractive acceleration available now. Stall grade = A_eff/G by construction.
+const aMax = ()=> holdGrade()*G;
+
+const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+const idx = (i,j)=> j*GX + i;
+const xOf = i => -BW/2 + i*CELL;
+const zOf = j => -BD/2 + j*CELL;
+
+// ───────────────────────────────────────────────────────────── noise
+function hash2(i,j,s){
+  let h = (i|0)*374761393 + (j|0)*668265263 + (s|0)*1442695041;
+  h = (h ^ (h>>>13)) >>> 0; h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h>>>16)) >>> 0) / 4294967295;
+}
+function vnoise(x,y,s){
+  const i=Math.floor(x), j=Math.floor(y), fx=x-i, fy=y-j;
+  const u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy);
+  const a=hash2(i,j,s), b=hash2(i+1,j,s), c=hash2(i,j+1,s), d=hash2(i+1,j+1,s);
+  return (a*(1-u)+b*u)*(1-v) + (c*(1-u)+d*u)*v;
+}
+function fbm(x,y,oct,s){
+  let amp=0.5, f=1, sum=0, n=0;
+  for(let o=0;o<oct;o++){ sum+=amp*vnoise(x*f,y*f,s+o*17); n+=amp; amp*=0.5; f*=2; }
+  return sum/n;
+}
+const sstep = (x,a,b)=>{ const t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
+
+// ───────────────────────────────────────────────────────────── terrain field
+// Convention: −z is uphill (the massif), +z is the valley floor and the near
+// edge of the board. Keeps the mountain rising AWAY from the default camera.
+let SEED = 1;
+// Per-board shape dice. Re-rolled with the seed so no two mountains are the
+// same problem: how high, how abrupt, how deeply cut by gullies.
+let SHAPE = { massif:10.5, pow:1.30, spur:4.2, rough:1.05, riverBend:2.3, valley:2.6 };
+function rollShape(s){
+  const r = (k)=>hash2(s, k, 977);
+  SHAPE = {
+    massif:    9.2 + r(1)*3.4,      // summit height
+    pow:       1.10 + r(2)*0.55,    // 1.1 = gentle shoulder, 1.6 = abrupt headwall
+    spur:      2.6 + r(3)*3.6,      // depth of the gullies / prominence of spurs
+    rough:     0.75 + r(4)*0.7,
+    riverBend: 1.4 + r(5)*2.6,
+    valley:    2.2 + r(6)*0.9
+  };
+}
+function fieldHeight(x,z){
+  const v = (BD/2 - z)/BD;                       // 0 valley (+z) → 1 peaks (−z)
+  let h = SHAPE.valley;                          // valley shelf sits above the board
+  h += Math.pow(sstep(v, 0.16, 1.0), SHAPE.pow) * SHAPE.massif;
+  h += (fbm(x*0.055, z*0.055, 4, SEED*7+11) - 0.5) * 5.4 * (0.30 + v*1.15);
+  // Spurs and gullies running down the fall line. Ridged noise, stretched in z
+  // so the features run downhill — these are what the survey has to work
+  // around, and they turn a smooth cone into a mountain with character.
+  const rn = fbm(x*0.085, z*0.028, 3, SEED*7+63);
+  const ridged = 1 - Math.abs(rn*2 - 1);
+  h += (ridged - 0.45) * SHAPE.spur * sstep(v, 0.20, 0.78);
+  h += (fbm(x*0.17,  z*0.17,  3, SEED*7+41) - 0.5) * SHAPE.rough;
+  // meandering river trenches the valley floor
+  const rz = BD/2 - 6.8 + Math.sin(x*0.115 + SEED)*SHAPE.riverBend + Math.sin(x*0.31)*0.75;
+  const d = z - rz;
+  h -= Math.exp(-(d*d)/26) * 2.9;
+  return Math.max(h, 0.25);
+}
+
+const baseH = new Float32Array(GX*GZ);
+const dispH = new Float32Array(GX*GZ);
+
+function sampleGrid(arr, x, z){
+  const fx = clamp((x + BW/2)/CELL, 0, NX), fz = clamp((z + BD/2)/CELL, 0, NZ);
+  const i = Math.min(NX-1, Math.floor(fx)), j = Math.min(NZ-1, Math.floor(fz));
+  const tx = fx-i, tz = fz-j;
+  const a=arr[idx(i,j)], b=arr[idx(i+1,j)], c=arr[idx(i,j+1)], d=arr[idx(i+1,j+1)];
+  return (a*(1-tx)+b*tx)*(1-tz) + (c*(1-tx)+d*tx)*tz;
+}
+const baseAt = (x,z)=> sampleGrid(baseH, x, z);
+
+function slopeAt(i,j){
+  const l=baseH[idx(Math.max(0,i-1),j)], r=baseH[idx(Math.min(NX,i+1),j)];
+  const d=baseH[idx(i,Math.max(0,j-1))], u=baseH[idx(i,Math.min(NZ,j+1))];
+  return Math.hypot((r-l)/(2*CELL), (u-d)/(2*CELL));
+}
+
+// ───────────────────────────────────────────────────────────── village sites
+function findSite(xa,xb,za,zb,targetH){
+  let best=null, bs=1e9;
+  const cx=(xa+xb)/2, cz=(za+zb)/2;
+  for(let j=1;j<GZ-1;j++){
+    const z=zOf(j); if(z<za||z>zb) continue;
+    for(let i=1;i<GX-1;i++){
+      const x=xOf(i); if(x<xa||x>xb) continue;
+      const h=baseH[idx(i,j)];
+      // flat + on-target height + pulled off the search-box edges
+      const s = slopeAt(i,j)*3.0 + Math.abs(h-targetH)*1.4
+              + Math.hypot(x-cx, z-cz)*0.06;
+      if(s<bs){ bs=s; best={x,z,h,i,j}; }
+    }
+  }
+  return best;
+}
+let siteA = null, siteB = null;
+
+// level a pad so the buildings sit flat, and so a terminus is actually buildable
+function flatten(site, r, taper){
+  for(let j=0;j<GZ;j++) for(let i=0;i<GX;i++){
+    const d = Math.hypot(xOf(i)-site.x, zOf(j)-site.z);
+    if(d>taper) continue;
+    const w = 1 - sstep(d, r, taper);
+    const k = idx(i,j);
+    baseH[k] = baseH[k]*(1-w) + site.h*w;
+  }
+}
+
+// Lay down heights + termini for a seed. No meshes — the seed search runs this
+// many times per accepted board, so it stays cheap.
+function buildField(seed){
+  SEED = seed; rollShape(seed);
+  for(let j=0;j<GZ;j++) for(let i=0;i<GX;i++) baseH[idx(i,j)] = fieldHeight(xOf(i), zOf(j));
+  siteA = findSite(-22,-6,   7, 16, SHAPE.valley);       // valley terminus
+  siteB = findSite(  2, 20, -14, -2, SHAPE.valley + 4.4); // shoulder terminus
+  flatten(siteA, 2.6, 5.2);
+  flatten(siteB, 2.2, 4.6);
+  siteA.h = baseAt(siteA.x, siteA.z);
+  siteB.h = baseAt(siteB.x, siteB.z);
+}
+
+// ─────────────────────────────────────────────────── solvability gate
+// A random mountain is not automatically a fair one. This is the in-game
+// version of the offline A*: state is (cell, railhead height) because where you
+// can reach depends on how high you already are. Height bins are FLOORed, never
+// rounded — rounding lets each step steal half a bin of free climb, which
+// compounds into a "solution" that quietly beats the grade limit.
+function probeSolvable(grade){
+  const G_ = grade || ruling;
+  const STEP=2.0, YB=0.05, YMUL=2000;
+  const LX=Math.floor(BW/STEP), LZ=Math.floor(BD/STEP);
+  const px=i=>-BW/2+1+i*STEP, pz=j=>-BD/2+1+j*STEP;
+  const GH=[];
+  for(let j=0;j<LZ;j++){ GH.push([]); for(let i=0;i<LX;i++) GH[j].push(baseAt(px(i),pz(j))); }
+  const MOV=[]; for(let a=-2;a<=2;a++) for(let b=-2;b<=2;b++) if(a||b) MOV.push([a,b]);
+  const cell=(x,z)=>[clamp(Math.round((x+BW/2-1)/STEP),0,LX-1), clamp(Math.round((z+BD/2-1)/STEP),0,LZ-1)];
+  const [SA,SB]=cell(siteA.x,siteA.z), [GA,GB]=cell(siteB.x,siteB.z);
+  const K=(i,j,yb)=>(j*LX+i)*YMUL+yb;
+  const g=new Map(), heap=[];
+  const push=(f,i,j,yb)=>{ heap.push([f,i,j,yb]); let c=heap.length-1;
+    while(c>0){ const p=(c-1)>>1; if(heap[p][0]<=heap[c][0]) break; [heap[p],heap[c]]=[heap[c],heap[p]]; c=p; } };
+  const pop=()=>{ const top=heap[0], last=heap.pop();
+    if(heap.length){ heap[0]=last; let c=0;
+      for(;;){ const l=2*c+1, r=l+1; let m=c;
+        if(l<heap.length && heap[l][0]<heap[m][0]) m=l;
+        if(r<heap.length && heap[r][0]<heap[m][0]) m=r;
+        if(m===c) break; [heap[m],heap[c]]=[heap[c],heap[m]]; c=m; } }
+    return top; };
+  const yb0=Math.floor(siteA.h/YB);
+  g.set(K(SA,SB,yb0),0); push(0,SA,SB,yb0);
+  let guard=0;
+  while(heap.length && guard++<300000){
+    const [,ci,cj,cy]=pop();
+    const cg=g.get(K(ci,cj,cy));
+    if(cg===undefined) continue;
+    if(ci===GA && cj===GB && Math.abs(cy*YB - siteB.h) < 0.2) return { ok:true, len:cg };
+    for(const [da,db] of MOV){
+      const ni=ci+da, nj=cj+db;
+      if(ni<0||nj<0||ni>=LX||nj>=LZ) continue;
+      const run=Math.hypot(da*STEP, db*STEP);
+      const ground=GH[nj][ni];
+      const y=clamp(ground, cy*YB-G_*run, cy*YB+G_*run);
+      if(Math.abs(y-ground) > MAX_EW) continue;      // unbuildable earthworks
+      const nyb=Math.floor(y/YB), ng=cg+run, kk=K(ni,nj,nyb);
+      if(g.has(kk) && g.get(kk)<=ng) continue;
+      g.set(kk,ng);
+      push(ng+Math.hypot(px(ni)-px(GA), pz(nj)-pz(GB)), ni, nj, nyb);
+    }
+  }
+  return { ok:false, len:0 };
+}
+
+// ───────────────────────────────────────────────────────────── renderer / scene
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.4;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0806);
+scene.fog = new THREE.Fog(0x0a0806, 105, 250);
+
+const camera = new THREE.PerspectiveCamera(28, innerWidth/innerHeight, 0.5, 400);
+camera.position.set(-20, 56, 68);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 4, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 22;
+controls.maxDistance = 120;
+controls.maxPolarAngle = 1.36;
+controls.mouseButtons = { LEFT:null, MIDDLE:THREE.MOUSE.PAN, RIGHT:THREE.MOUSE.ROTATE };
+controls.update();
+
+// desk lamp: warm, raking, casts the long shadows that make a model read as a model
+const key = new THREE.DirectionalLight(0xffd7a0, 3.4);
+key.position.set(-38, 42, 34);
+key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-34; key.shadow.camera.right=34;
+key.shadow.camera.top=30; key.shadow.camera.bottom=-30;
+key.shadow.camera.near=1; key.shadow.camera.far=110;
+key.shadow.bias = -0.0012;
+key.shadow.normalBias = 0.03;
+scene.add(key);
+const hemi = new THREE.HemisphereLight(0x9dc0ee, 0x4a3a2a, 1.05);
+scene.add(hemi);
+const fill = new THREE.DirectionalLight(0x86a8d8, 0.5);
+fill.position.set(30, 18, -26); scene.add(fill);
+
+// the table the model sits on
+const desk = new THREE.Mesh(
+  new THREE.PlaneGeometry(300,300),
+  new THREE.MeshStandardMaterial({ color:0x1a120b, roughness:0.95 })
+);
+desk.rotation.x = -Math.PI/2; desk.position.y = -2.6; desk.receiveShadow = true;
+scene.add(desk);
+
+// baseboard — visible plywood edge is the whole "this is a model" trick
+const board = new THREE.Mesh(
+  new THREE.BoxGeometry(BW+1.4, 2.4, BD+1.4),
+  new THREE.MeshStandardMaterial({ color:0x6d4a28, roughness:0.85 })
+);
+board.position.y = -1.2; board.castShadow = true; board.receiveShadow = true;
+scene.add(board);
+const rim = new THREE.Mesh(
+  new THREE.BoxGeometry(BW+1.7, 0.28, BD+1.7),
+  new THREE.MeshStandardMaterial({ color:0x8a5f33, roughness:0.7 })
+);
+rim.position.y = 0.02; scene.add(rim);
+
+// Water sits at a fixed level and is simply clipped by the terrain — the river
+// trench is the only thing below it, so the shape draws itself.
+const WATER_Y = 1.05;
+const water = new THREE.Mesh(
+  new THREE.PlaneGeometry(BW, BD, 1, 1),
+  new THREE.MeshStandardMaterial({
+    color:0x4a7f88, roughness:0.12, metalness:0.2,
+    transparent:true, opacity:0.8
+  })
+);
+water.rotation.x = -Math.PI/2; water.position.y = WATER_Y;
+water.receiveShadow = true;
+scene.add(water);
+
+// ───────────────────────────────────────────────────────────── terrain mesh
+const terrainGeo = new THREE.BufferGeometry();
+const TRIV = NX*NZ*6;
+const tPos = new Float32Array(TRIV*3), tCol = new Float32Array(TRIV*3);
+terrainGeo.setAttribute('position', new THREE.BufferAttribute(tPos,3));
+terrainGeo.setAttribute('color',    new THREE.BufferAttribute(tCol,3));
+const terrain = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({
+  vertexColors:true, roughness:0.94, metalness:0.0
+}));
+terrain.castShadow = true; terrain.receiveShadow = true;
+scene.add(terrain);
+
+// skirt: closes the terrain down to the board so you see the moulded cross-section
+const skirtGeo = new THREE.BufferGeometry();
+const SKV = (NX*2 + NZ*2)*6;
+const sPos = new Float32Array(SKV*3);
+skirtGeo.setAttribute('position', new THREE.BufferAttribute(sPos,3));
+const skirt = new THREE.Mesh(skirtGeo, new THREE.MeshStandardMaterial({
+  color:0xa08a6c, roughness:0.92, side:THREE.DoubleSide
+}));
+skirt.castShadow = true; scene.add(skirt);
+
+const C_GRASS=[0.30,0.42,0.19], C_MEADOW=[0.44,0.50,0.24], C_ROCK=[0.40,0.38,0.35],
+      C_SCREE=[0.52,0.49,0.45], C_SNOW=[0.90,0.91,0.93], C_RIVER=[0.30,0.36,0.34],
+      C_RAW=[0.38,0.28,0.19];   // freshly turned earth on a cutting or embankment
+function colorAt(x,z,h,slope,disturb,out){
+  const rocky = clamp(sstep(h,4.2,9.0)*0.75 + sstep(slope,0.55,1.5)*0.9, 0, 1);
+  // snowShift walks the snow line down the mountain as the year turns
+  const snowy = sstep(h,11.0+snowShift,13.4+snowShift) * clamp(1-sstep(slope,0.9,1.7),0,1);
+  const low   = 1 - sstep(h,0.3,1.6);
+  let r,g,b;
+  const m = vnoise(x*0.6,z*0.6,7)*0.10 - 0.05;
+  r = C_GRASS[0]*(1-rocky) + C_ROCK[0]*rocky;
+  g = C_GRASS[1]*(1-rocky) + C_ROCK[1]*rocky;
+  b = C_GRASS[2]*(1-rocky) + C_ROCK[2]*rocky;
+  const md = sstep(h,1.2,4.0)*(1-rocky);
+  r = r*(1-md)+C_MEADOW[0]*md; g = g*(1-md)+C_MEADOW[1]*md; b = b*(1-md)+C_MEADOW[2]*md;
+  const sc = sstep(slope,1.1,1.9)*(1-snowy);
+  r = r*(1-sc)+C_SCREE[0]*sc; g = g*(1-sc)+C_SCREE[1]*sc; b = b*(1-sc)+C_SCREE[2]*sc;
+  r = r*(1-snowy)+C_SNOW[0]*snowy; g = g*(1-snowy)+C_SNOW[1]*snowy; b = b*(1-snowy)+C_SNOW[2]*snowy;
+  r = r*(1-low)+C_RIVER[0]*low; g = g*(1-low)+C_RIVER[1]*low; b = b*(1-low)+C_RIVER[2]*low;
+  // Earthworks scar the ground. Steep batters stay raw; shallow ones green over.
+  const raw = sstep(Math.abs(disturb), 0.5, 2.2) * (0.25 + 0.75*sstep(slope, 0.35, 1.05));
+  r = r*(1-raw)+C_RAW[0]*raw; g = g*(1-raw)+C_RAW[1]*raw; b = b*(1-raw)+C_RAW[2]*raw;
+  // seasonal wash — spare the snow, which should stay white in every month
+  const w = 1-snowy;
+  r *= 1+(seasonTint[0]-1)*w; g *= 1+(seasonTint[1]-1)*w; b *= 1+(seasonTint[2]-1)*w;
+  out[0]=clamp(r+m,0,1); out[1]=clamp(g+m,0,1); out[2]=clamp(b+m,0,1);
+}
+
+function dispSlope(i,j){
+  const l=dispH[idx(Math.max(0,i-1),j)], r=dispH[idx(Math.min(NX,i+1),j)];
+  const d=dispH[idx(i,Math.max(0,j-1))], u=dispH[idx(i,Math.min(NZ,j+1))];
+  return Math.hypot((r-l)/(2*CELL), (u-d)/(2*CELL));
+}
+
+const _c = [0,0,0];
+function rebuildTerrainMesh(){
+  let p=0, c=0;
+  const push=(i,j)=>{
+    const k=idx(i,j), x=xOf(i), z=zOf(j), h=dispH[k];
+    tPos[p++]=x; tPos[p++]=h; tPos[p++]=z;
+    colorAt(x,z,h,dispSlope(i,j),h-baseH[k],_c);
+    tCol[c++]=_c[0]; tCol[c++]=_c[1]; tCol[c++]=_c[2];
+  };
+  for(let j=0;j<NZ;j++) for(let i=0;i<NX;i++){
+    push(i,j); push(i,j+1); push(i+1,j);
+    push(i+1,j); push(i,j+1); push(i+1,j+1);
+  }
+  terrainGeo.attributes.position.needsUpdate = true;
+  terrainGeo.attributes.color.needsUpdate = true;
+  terrainGeo.computeVertexNormals();
+  terrainGeo.computeBoundingSphere();
+
+  // skirt
+  let s=0;
+  const quad=(x1,z1,h1,x2,z2,h2)=>{
+    sPos[s++]=x1; sPos[s++]=h1; sPos[s++]=z1;
+    sPos[s++]=x1; sPos[s++]=0;  sPos[s++]=z1;
+    sPos[s++]=x2; sPos[s++]=h2; sPos[s++]=z2;
+    sPos[s++]=x2; sPos[s++]=0;  sPos[s++]=z2;
+    sPos[s++]=x2; sPos[s++]=h2; sPos[s++]=z2;
+    sPos[s++]=x1; sPos[s++]=0;  sPos[s++]=z1;
+  };
+  for(let i=0;i<NX;i++){
+    quad(xOf(i),zOf(0),dispH[idx(i,0)],   xOf(i+1),zOf(0),dispH[idx(i+1,0)]);
+    quad(xOf(i),zOf(NZ),dispH[idx(i,NZ)], xOf(i+1),zOf(NZ),dispH[idx(i+1,NZ)]);
+  }
+  for(let j=0;j<NZ;j++){
+    quad(xOf(0),zOf(j),dispH[idx(0,j)],   xOf(0),zOf(j+1),dispH[idx(0,j+1)]);
+    quad(xOf(NX),zOf(j),dispH[idx(NX,j)], xOf(NX),zOf(j+1),dispH[idx(NX,j+1)]);
+  }
+  skirtGeo.attributes.position.needsUpdate = true;
+  skirtGeo.computeVertexNormals();
+  skirtGeo.computeBoundingSphere();
+}
+
+// ───────────────────────────────────────────────────────────── earthworks
+// The line is cut and filled into the hill. This is where the look comes from:
+// a shelf carved across a slope reads instantly as "somebody built a railway here".
+let corridor = [];   // [{x,z,y}] dense samples of the formation
+let corrBox = null;
+
+function applyEarthworks(){
+  dispH.set(baseH);
+  if(corridor.length < 2){ rebuildTerrainMesh(); return; }
+  const REACH = HALF_W + BATTER;
+  const bx0=corrBox.x0-REACH, bx1=corrBox.x1+REACH, bz0=corrBox.z0-REACH, bz1=corrBox.z1+REACH;
+  for(let j=0;j<GZ;j++){
+    const z=zOf(j); if(z<bz0||z>bz1) continue;
+    for(let i=0;i<GX;i++){
+      const x=xOf(i); if(x<bx0||x>bx1) continue;
+      let bd=1e9, best=null;
+      for(let k=0;k<corridor.length;k++){
+        const s=corridor[k], dx=x-s.x, dz=z-s.z, d2=dx*dx+dz*dz;
+        if(d2<bd){ bd=d2; best=s; }
+      }
+      const d = Math.sqrt(bd);
+      if(d > REACH || !best) continue;
+      // Bridge/tunnel is a property of the LINE, decided from the ground under
+      // the rail — never from this vertex's own height. Deciding per-vertex
+      // skips the uphill batter of every cutting (its delta looks like a
+      // tunnel) and leaves a sheer wall beside the track.
+      if(best.skip) continue;
+      const k2 = idx(i,j), base = baseH[k2];
+      const t = d <= HALF_W ? 1 : 1 - (d-HALF_W)/BATTER;
+      const w = t*t*(3-2*t);
+      dispH[k2] = base + ((best.y - FORM_DROP) - base)*w;
+    }
+  }
+  rebuildTerrainMesh();
+}
+
+// ───────────────────────────────────────────────────────────── scatter: trees
+// Allocated once at TREE_MAX and re-filled per board via `.count` — recreating
+// InstancedMeshes on every reseed would churn GPU buffers for nothing.
+const TREE_MAX = 1100;
+let treePts = [];
+const trunkMat = new THREE.MeshStandardMaterial({ color:0x4a3222, roughness:0.9 });
+const leafMat  = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.85 });
+const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.055,0.085,0.5,5), trunkMat, TREE_MAX);
+const leaves = new THREE.InstancedMesh(new THREE.ConeGeometry(0.36,1.25,6), leafMat, TREE_MAX);
+trunks.castShadow = leaves.castShadow = true;
+leaves.receiveShadow = true;
+scene.add(trunks, leaves);
+
+function scatterTrees(){
+  treePts = [];
+  let guard=0;
+  const treeline = 5.4 + SHAPE.massif*0.35;     // higher mountains, higher treeline
+  while(treePts.length<TREE_MAX && guard++<90000){
+    const x=(hash2(guard,3,91+SEED*13)-0.5)*(BW-1.5), z=(hash2(guard,5,53+SEED*13)-0.5)*(BD-1.5);
+    const fx=clamp((x+BW/2)/CELL,0,NX), fz=clamp((z+BD/2)/CELL,0,NZ);
+    const i=Math.round(fx), j=Math.round(fz);
+    const h=baseH[idx(i,j)], sl=slopeAt(i,j);
+    if(h<0.7 || h>treeline+2.2 || sl>1.15) continue;
+    if(Math.hypot(x-siteA.x,z-siteA.z)<5.5) continue;
+    if(Math.hypot(x-siteB.x,z-siteB.z)<5.0) continue;
+    // thins out toward the treeline instead of stopping dead in a stripe
+    const dens = 0.85 * treeScale * (1 - sstep(h, treeline-2.4, treeline+2.2)) * (1 - sstep(sl, 0.6, 1.15)*0.6);
+    if(hash2(guard,7,17+SEED*13) > dens) continue;
+    treePts.push({x, z, h, s: 0.6+hash2(guard,9,29)*0.75, r: hash2(guard,11,31)*6.28,
+                  c: hash2(guard,13,71)});
+  }
+  trunks.count = leaves.count = treePts.length;
+  const c = new THREE.Color();
+  for(let n=0;n<treePts.length;n++){
+    const t = treePts[n];
+    c.setHSL(0.24 + t.c*0.045, 0.34 + t.c*0.16, 0.16 + t.c*0.12);
+    leaves.setColorAt(n, c);
+  }
+  leaves.instanceColor.needsUpdate = true;
+}
+
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(),
+      _v = new THREE.Vector3(), _sc = new THREE.Vector3();
+// Fell everything the earthworks actually disturb, not just the formation —
+// a tree left standing on a slope you just excavated reads as a bug.
+const CLEAR_R2 = Math.pow(HALF_W + BATTER*0.8, 2);
+function refreshTrees(){
+  for(let n=0;n<treePts.length;n++){
+    const t = treePts[n];
+    let hide = false;
+    for(let k=0;k<corridor.length;k++){
+      const s=corridor[k], dx=t.x-s.x, dz=t.z-s.z;
+      if(dx*dx+dz*dz < CLEAR_R2){ hide=true; break; }
+    }
+    // Stand on the ground as it is NOW: anything on a batter slope was planted
+    // at the old height and would otherwise hang in the air over its own cutting.
+    const gy = sampleGrid(dispH, t.x, t.z);
+    _q.setFromAxisAngle(new THREE.Vector3(0,1,0), t.r);
+    if(hide){ _sc.set(0,0,0); } else { _sc.set(t.s,t.s,t.s); }
+    _v.set(t.x, gy + 0.25*t.s, t.z);
+    _m.compose(_v,_q,_sc); trunks.setMatrixAt(n,_m);
+    _v.set(t.x, gy + 0.5*t.s + 0.62*t.s, t.z);
+    _m.compose(_v,_q,_sc); leaves.setMatrixAt(n,_m);
+  }
+  trunks.instanceMatrix.needsUpdate = true;
+  leaves.instanceMatrix.needsUpdate = true;
+}
+
+// ───────────────────────────────────────────────────────────── villages
+function makeVillage(site, nHouses, seed){
+  const g = new THREE.Group();
+  const wall = new THREE.MeshStandardMaterial({ color:0xd8cbb2, roughness:0.85 });
+  const roof = new THREE.MeshStandardMaterial({ color:0x7a3b2c, roughness:0.8 });
+  const stone= new THREE.MeshStandardMaterial({ color:0x8d8375, roughness:0.9 });
+  for(let n=0;n<nHouses;n++){
+    const a = hash2(n,seed,3)*6.28, r = 1.5 + hash2(n,seed,5)*2.6;
+    const x = site.x + Math.cos(a)*r, z = site.z + Math.sin(a)*r;
+    const w = 0.75+hash2(n,seed,7)*0.4, d = 0.65+hash2(n,seed,9)*0.35, hh = 0.6+hash2(n,seed,11)*0.3;
+    const h = new THREE.Mesh(new THREE.BoxGeometry(w,hh,d), n%4===0?stone:wall);
+    h.position.set(x, site.h+hh/2, z); h.rotation.y = hash2(n,seed,13)*6.28;
+    h.castShadow = h.receiveShadow = true; g.add(h);
+    const rf = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.78, 0.42, 4), roof);
+    rf.position.set(x, site.h+hh+0.2, z); rf.rotation.y = h.rotation.y + Math.PI/4;
+    rf.castShadow = true; g.add(rf);
+  }
+  return g;
+}
+// terminus markers — a lamp post each, so you can find them in the dark
+function terminus(site, color){
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,1.6,6),
+    new THREE.MeshStandardMaterial({ color:0x2a2420, roughness:0.7 }));
+  post.position.set(site.x, site.h+0.8, site.z); post.castShadow = true; g.add(post);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.14,10,8),
+    new THREE.MeshStandardMaterial({ color:0xfff0c0, emissive:color, emissiveIntensity:2.4 }));
+  lamp.position.set(site.x, site.h+1.68, site.z); g.add(lamp);
+  const pl = new THREE.PointLight(color, 7, 9, 2);
+  pl.position.set(site.x, site.h+1.7, site.z); g.add(pl);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(2.4,2.62,48),
+    new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.35, side:THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI/2; ring.position.set(site.x, site.h+0.06, site.z); g.add(ring);
+  return g;
+}
+
+// Everything that belongs to one particular mountain lives here, so a reseed is
+// a single dispose-and-rebuild rather than a hunt through the scene graph.
+const boardGroup = new THREE.Group();
+scene.add(boardGroup);
+function rebuildVillages(){
+  for(const c of [...boardGroup.children]){
+    boardGroup.remove(c);
+    c.traverse(o=>{ if(o.isMesh){ o.geometry.dispose(); } });
+  }
+  boardGroup.add(makeVillage(siteA, 9, 2 + SEED*3));
+  boardGroup.add(makeVillage(siteB, 5, 8 + SEED*3));
+  boardGroup.add(terminus(siteA, 0xffc46a));
+  boardGroup.add(terminus(siteB, 0x9fd4ff));
+}
+
+// ───────────────────────────────────────────────────────────── survey
+// A surveyor does NOT trace the ground — they hold a ruling grade and let cut
+// and fill absorb the difference. So a peg's rail height is the ground height
+// CLAMPED to what the previous peg's grade allows. Everything interesting
+// falls out of that: fight the hill and the earthworks balloon; the terminus
+// platform sits at a fixed height, so reaching it is purely a question of
+// whether you've given yourself enough run.
+function pegElevation(x, z, prev, offset, override){
+  const ground = baseAt(x, z);
+  const nearA = Math.hypot(x-siteA.x, z-siteA.z) < STATION_R;
+  const nearB = Math.hypot(x-siteB.x, z-siteB.z) < STATION_R;
+  const platform = nearA ? siteA.h : nearB ? siteB.h : null;
+
+  // free-running track: hold height rather than dip into every hollow, or the
+  // railhead gives back climb it already paid for and nothing ever arrives.
+  // Q (a negative offset) is the deliberate opt-out when you DO want to descend.
+  const freeY = (p) => {
+    let t = ground + offset;
+    if(!override && offset >= 0) t = Math.max(t, p.y);
+    const mr = ruling * Math.hypot(x-p.x, z-p.z);
+    return override ? t : clamp(t, p.y-mr, p.y+mr);
+  };
+
+  if(!prev){
+    const y = platform !== null ? platform : ground + offset;
+    return { y, ground, grade:0, cutFill:y-ground, station:platform!==null,
+             shortfall:0, nearVillage:platform!==null };
+  }
+
+  const run = Math.hypot(x-prev.x, z-prev.z);
+  const maxRise = ruling * run;
+  let y, station = false, shortfall = 0;
+  if(platform !== null && !override){
+    // Meeting the platform is a PREFERENCE, not a requirement. A line often
+    // passes under its own destination on the way out to a horseshoe; that's
+    // ordinary track, not a failed station.
+    const yp = clamp(platform, prev.y-maxRise, prev.y+maxRise);
+    shortfall = platform - yp;
+    // Snap to yp, never to `platform`: on a short final peg, teleporting the
+    // rail those last few centimetres is a 40%+ kink in the line. yp is already
+    // the closest the grade legally allows, and connected() tolerates the gap.
+    if(Math.abs(shortfall) < 0.06){ y = yp; station = true; }
+    else y = freeY(prev);
+  } else {
+    y = freeY(prev);
+  }
+  return {
+    y, ground,
+    grade: run > 0.01 ? (y-prev.y)/run : 0,
+    cutFill: y - ground,
+    station, shortfall, nearVillage: platform !== null
+  };
+}
+
+// ───────────────────────────────────────────────────────────── track
+const nodes = [];                 // survey pegs {x,y,z}
+// The grade the TRAIN feels is the one under the whole rake, not under a point.
+// Averaging over the rake length keeps a one-sample blip from dooming a line,
+// and is the same figure the survey reports as the ruling grade.
+const SUSTAIN_WIN = 5;
+let curve = null, samples = [], cumLen = [], cumFlat = [], totalLen = 0, rulingGrade = 0;
+
+const trackGroup = new THREE.Group(); scene.add(trackGroup);
+const ballastMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.95 });
+const railMat    = new THREE.MeshStandardMaterial({ color:0x9a8f7d, roughness:0.42, metalness:0.75 });
+const sleeperMat = new THREE.MeshStandardMaterial({ color:0x4a3626, roughness:0.9 });
+const trestleMat = new THREE.MeshStandardMaterial({ color:0x5c4028, roughness:0.85 });
+
+let ballastMesh=null, railMesh=null, sleeperMesh=null, trestleMesh=null;
+
+function ribbonGeo(pts, halfW, yOff, colorFn){
+  const n = pts.length; if(n<2) return null;
+  const g = new THREE.BufferGeometry();
+  const P = new Float32Array((n-1)*6*3);
+  const C = colorFn ? new Float32Array((n-1)*6*3) : null;
+  const up = new THREE.Vector3(0,1,0), tan = new THREE.Vector3(), side = new THREE.Vector3();
+  const L = [], R = [];
+  for(let i=0;i<n;i++){
+    const a = pts[Math.max(0,i-1)], b = pts[Math.min(n-1,i+1)];
+    tan.subVectors(b,a).normalize();
+    side.crossVectors(tan, up).normalize().multiplyScalar(halfW);
+    L.push(new THREE.Vector3(pts[i].x - side.x, pts[i].y+yOff, pts[i].z - side.z));
+    R.push(new THREE.Vector3(pts[i].x + side.x, pts[i].y+yOff, pts[i].z + side.z));
+  }
+  let p=0, c=0;
+  const put=(v,ci)=>{ P[p++]=v.x; P[p++]=v.y; P[p++]=v.z;
+    if(C){ const col=colorFn(ci); C[c++]=col[0]; C[c++]=col[1]; C[c++]=col[2]; } };
+  for(let i=0;i<n-1;i++){
+    put(L[i],i); put(L[i+1],i+1); put(R[i],i);
+    put(R[i],i); put(L[i+1],i+1); put(R[i+1],i+1);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(P,3));
+  if(C) g.setAttribute('color', new THREE.BufferAttribute(C,3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// Arc-length lookups over `samples` — replaces curve.getPointAt/getTangentAt,
+// which would re-introduce the vertical overshoot we just removed.
+function pointAtS(s, out){
+  s = clamp(s, 0, totalLen);
+  let lo=0, hi=cumLen.length-1;
+  while(lo < hi-1){ const mid=(lo+hi)>>1; if(cumLen[mid] <= s) lo=mid; else hi=mid; }
+  const seg = cumLen[hi]-cumLen[lo];
+  const f = seg > 1e-6 ? (s-cumLen[lo])/seg : 0;
+  return out.lerpVectors(samples[lo], samples[hi], f);
+}
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+function tangentAtS(s, out){
+  const d = 0.3;                      // tight: this one aims the rolling stock
+  pointAtS(clamp(s-d, 0, totalLen), _pa);
+  pointAtS(clamp(s+d, 0, totalLen), _pb);
+  return out.subVectors(_pb, _pa).normalize();
+}
+// Rise/run under the whole rake — what the engine has to pull against.
+function slopeAtS(s){
+  const d = SUSTAIN_WIN/2;
+  pointAtS(clamp(s-d, 0, totalLen), _pa);
+  pointAtS(clamp(s+d, 0, totalLen), _pb);
+  const flat = Math.hypot(_pb.x-_pa.x, _pb.z-_pa.z);
+  return flat > 1e-4 ? (_pb.y-_pa.y)/flat : 0;
+}
+
+const gradeCols = [];
+const BALLAST = [0.34,0.32,0.29];
+function gradeColor(i){
+  if(!opts.gradeTint) return BALLAST;
+  const gr = Math.abs(gradeCols[Math.min(gradeCols.length-1, i)] || 0);
+  if(gr > holdGrade()) return [0.62,0.20,0.14];     // won't lift it TODAY — rusty red
+  if(gr > ruling*0.92) return [0.42,0.35,0.22];     // working hard — amber ballast
+  return BALLAST;                                   // grey ballast
+}
+
+function clearTrack(){
+  for(const m of [ballastMesh, railMesh, sleeperMesh, trestleMesh]){
+    if(m){ trackGroup.remove(m); m.geometry.dispose(); }
+  }
+  ballastMesh = railMesh = sleeperMesh = trestleMesh = null;
+}
+
+function rebuildTrack(){
+  clearTrack();
+  corridor = []; corrBox = null;
+  curve = null; samples = []; cumLen = []; cumFlat = []; totalLen = 0; rulingGrade = 0;
+
+  if(nodes.length >= 2){
+    // Spline the PLAN only. Height is linear per peg-segment, so the grade the
+    // survey promises is the grade the rail actually has — a Catmull-Rom
+    // through 3D points overshoots vertically and quietly invents 7%+ pitches
+    // on a line where every peg obeys 6%.
+    const n = nodes.length;
+    const xz = new THREE.CatmullRomCurve3(
+      nodes.map(p=> new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal', 0.5);
+    // Height must rise against ARC LENGTH, not against the curve parameter:
+    // centripetal Catmull-Rom bunches its samples near the ends, so lerping y
+    // on t alone puts a 55% cliff in the first 20cm of a dead-straight line.
+    const SEG = 18;
+    samples = [];
+    for(let i=0;i<n-1;i++){
+      const seg = [];
+      for(let s=0;s<=SEG;s++) seg.push(xz.getPoint((i + s/SEG)/(n-1)));
+      const cl = [0];
+      for(let s=1;s<=SEG;s++) cl.push(cl[s-1] + Math.hypot(seg[s].x-seg[s-1].x, seg[s].z-seg[s-1].z));
+      const L = cl[SEG] || 1e-6;
+      const y0 = nodes[i].y, y1 = nodes[i+1].y;
+      const upto = (i === n-2) ? SEG : SEG-1;   // don't duplicate the shared peg
+      for(let s=0;s<=upto;s++){
+        const p = seg[s];
+        p.y = y0 + (y1-y0) * (cl[s]/L);
+        samples.push(p);
+      }
+    }
+    curve = xz;
+
+    cumLen = [0];
+    for(let i=1;i<samples.length;i++) cumLen.push(cumLen[i-1] + samples[i].distanceTo(samples[i-1]));
+    totalLen = cumLen[cumLen.length-1];
+
+    // local grade, per sample — this is what tints the ballast
+    gradeCols.length = 0;
+    for(let i=0;i<samples.length;i++){
+      const a = samples[Math.max(0,i-1)], b = samples[Math.min(samples.length-1,i+1)];
+      const run = Math.hypot(b.x-a.x, b.z-a.z);
+      gradeCols.push(run > 1e-5 ? (b.y-a.y)/run : 0);
+    }
+
+    // The RULING grade: the steepest grade under the rake anywhere on the line.
+    // Measured over exactly the window the physics integrates (SUSTAIN_WIN), so
+    // "worst sustained" on the HUD is precisely what makes her slip.
+    cumFlat = [0];
+    for(let i=1;i<samples.length;i++)
+      cumFlat.push(cumFlat[i-1] + Math.hypot(samples[i].x-samples[i-1].x, samples[i].z-samples[i-1].z));
+    let j = 0;
+    for(let i=0;i<samples.length;i++){
+      while(j < samples.length-1 && cumLen[j] < cumLen[i] + SUSTAIN_WIN) j++;
+      const flat = cumFlat[j] - cumFlat[i];
+      if(flat < SUSTAIN_WIN*0.4) continue;              // tail of the line
+      rulingGrade = Math.max(rulingGrade, Math.abs((samples[j].y - samples[i].y)/flat));
+    }
+    if(rulingGrade === 0 && totalLen > 1){              // line shorter than the window
+      const flat = cumFlat[cumFlat.length-1];
+      if(flat > 0.5) rulingGrade = Math.abs(samples[samples.length-1].y - samples[0].y)/flat;
+    }
+
+    // Classify each point on the line once: how far the rail sits above or
+    // below the ground it actually crosses decides trestle / cutting / tunnel.
+    corridor = samples.map(s=>{
+      const under = baseAt(s.x, s.z);
+      const delta = (s.y - FORM_DROP) - under;
+      return { x:s.x, y:s.y, z:s.z, delta,
+               skip: delta > BRIDGE_H || delta < -TUNNEL_D };
+    });
+    corrBox = { x0:Infinity, x1:-Infinity, z0:Infinity, z1:-Infinity };
+    for(const s of corridor){
+      corrBox.x0=Math.min(corrBox.x0,s.x); corrBox.x1=Math.max(corrBox.x1,s.x);
+      corrBox.z0=Math.min(corrBox.z0,s.z); corrBox.z1=Math.max(corrBox.z1,s.z);
+    }
+
+    const bg = ribbonGeo(samples, 0.72, 0.0, gradeColor);
+    if(bg){ ballastMesh = new THREE.Mesh(bg, ballastMat);
+      ballastMesh.receiveShadow = true; trackGroup.add(ballastMesh); }
+
+    // rails: two thin ribbons, offset by gauge
+    const railGeos = [];
+    for(const off of [-0.30, 0.30]){
+      const shifted = [];
+      const up=new THREE.Vector3(0,1,0), tan=new THREE.Vector3(), side=new THREE.Vector3();
+      for(let i=0;i<samples.length;i++){
+        const a=samples[Math.max(0,i-1)], b=samples[Math.min(samples.length-1,i+1)];
+        tan.subVectors(b,a).normalize();
+        side.crossVectors(tan,up).normalize().multiplyScalar(off);
+        shifted.push(new THREE.Vector3(samples[i].x+side.x, samples[i].y, samples[i].z+side.z));
+      }
+      railGeos.push(ribbonGeo(shifted, 0.045, 0.075, null));
+    }
+    const railGeo = mergeGeos(railGeos.filter(Boolean));
+    if(railGeo){ railMesh = new THREE.Mesh(railGeo, railMat);
+      railMesh.castShadow = true; trackGroup.add(railMesh); }
+
+    // sleepers
+    const step = 0.55, count = Math.max(1, Math.floor(totalLen/step));
+    sleeperMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.92,0.06,0.15), sleeperMat, count);
+    sleeperMesh.castShadow = true;
+    const q=new THREE.Quaternion(), m=new THREE.Matrix4(), v=new THREE.Vector3(), one=new THREE.Vector3(1,1,1);
+    const tmpT=new THREE.Vector3(), tmpP=new THREE.Vector3();
+    for(let i=0;i<count;i++){
+      const sAt = i*step;
+      pointAtS(sAt, tmpP); tangentAtS(sAt, tmpT);
+      const yaw = Math.atan2(tmpT.x, tmpT.z);
+      const pitch = -Math.asin(clamp(tmpT.y,-1,1));
+      q.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+      v.set(tmpP.x, tmpP.y+0.03, tmpP.z);
+      m.compose(v,q,one); sleeperMesh.setMatrixAt(i,m);
+    }
+    trackGroup.add(sleeperMesh);
+
+    // trestles where the fill would be too high to stand up as an embankment
+    const legs = [];
+    const UPV = new THREE.Vector3(0,1,0), sideV = new THREE.Vector3();
+    for(let i=0;i<samples.length;i+=3){
+      const s = samples[i];
+      const g0 = baseAt(s.x, s.z);
+      const h = s.y - g0;
+      if(h <= BRIDGE_H) continue;
+      tangentAtS(cumLen[i], tmpT);
+      sideV.crossVectors(tmpT, UPV).normalize();   // straddle the track, not a diagonal
+      legs.push({x:s.x, z:s.z, y:g0, h, sx:sideV.x, sz:sideV.z});
+    }
+    if(legs.length){
+      trestleMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.13,1,0.13), trestleMat, legs.length*2);
+      trestleMesh.castShadow = true;
+      let n=0;
+      for(const lg of legs){
+        for(const off of [-0.34, 0.34]){
+          v.set(lg.x + lg.sx*off, lg.y + lg.h/2, lg.z + lg.sz*off);
+          m.compose(v, new THREE.Quaternion(), new THREE.Vector3(1, lg.h, 1));
+          trestleMesh.setMatrixAt(n++, m);
+        }
+      }
+      trackGroup.add(trestleMesh);
+    }
+  }
+
+  applyEarthworks();
+  refreshTrees();
+  updateHUD();
+}
+
+function mergeGeos(list){
+  if(!list.length) return null;
+  let total = 0;
+  for(const g of list) total += g.attributes.position.count;
+  const P = new Float32Array(total*3), N = new Float32Array(total*3);
+  let o=0;
+  for(const g of list){
+    P.set(g.attributes.position.array, o*3);
+    N.set(g.attributes.normal.array, o*3);
+    o += g.attributes.position.count;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(P,3));
+  out.setAttribute('normal',   new THREE.BufferAttribute(N,3));
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────── ghost peg
+const ghostGroup = new THREE.Group(); scene.add(ghostGroup);
+const ghostPeg = new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.5,8),
+  new THREE.MeshStandardMaterial({ color:0xffd27a, emissive:0x6a4a10, emissiveIntensity:1 }));
+ghostGroup.add(ghostPeg);
+const ghostStem = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,1,6),
+  new THREE.MeshBasicMaterial({ color:0xffd27a, transparent:true, opacity:0.5 }));
+ghostGroup.add(ghostStem);
+const ghostLineMat = new THREE.LineBasicMaterial({ color:0x7fbf5a });
+const ghostLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+  [new THREE.Vector3(), new THREE.Vector3()]), ghostLineMat);
+ghostGroup.add(ghostLine);
+
+const pegMat = new THREE.MeshStandardMaterial({ color:0xd8b070, roughness:0.6 });
+let pegMesh = null;
+function rebuildPegs(){
+  if(pegMesh){ ghostGroup.remove(pegMesh); pegMesh.geometry.dispose(); pegMesh=null; }
+  if(!nodes.length) return;
+  pegMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07,0.07,0.34,6), pegMat, nodes.length);
+  const m=new THREE.Matrix4(), v=new THREE.Vector3(), q=new THREE.Quaternion(), one=new THREE.Vector3(1,1,1);
+  for(let i=0;i<nodes.length;i++){
+    v.set(nodes[i].x, nodes[i].y+0.2, nodes[i].z);
+    m.compose(v,q,one); pegMesh.setMatrixAt(i,m);
+  }
+  ghostGroup.add(pegMesh);
+}
+
+// ───────────────────────────────────────────────────────────── train
+function buildTrain(){
+  // Rolling stock is modelled +X-forward (boiler along X, wheels at wx offsets),
+  // but the track convention — shared with the sleepers — puts local +Z along the
+  // tangent. Without this inner yaw the train runs sideways, and the pitch term
+  // rolls it instead of tipping it. Body is +X; `outer` is +Z.
+  const outer = new THREE.Group();
+  const g = new THREE.Group();
+  g.rotation.y = -Math.PI/2;
+  outer.add(g);
+  const green = new THREE.MeshStandardMaterial({ color:0x1f4a3a, roughness:0.42, metalness:0.3 });
+  const black = new THREE.MeshStandardMaterial({ color:0x1a1715, roughness:0.5, metalness:0.4 });
+  const brass = new THREE.MeshStandardMaterial({ color:0xc79a44, roughness:0.3, metalness:0.85 });
+  const boiler = new THREE.Mesh(new THREE.CylinderGeometry(0.28,0.28,1.25,12), green);
+  boiler.rotation.z = Math.PI/2; boiler.position.set(0.12,0.36,0); g.add(boiler);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(0.62,0.62,0.66), green);
+  cab.position.set(-0.62,0.5,0); g.add(cab);
+  const roofc = new THREE.Mesh(new THREE.BoxGeometry(0.72,0.06,0.74), black);
+  roofc.position.set(-0.62,0.83,0); g.add(roofc);
+  const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.09,0.34,10), black);
+  chim.position.set(0.62,0.66,0); g.add(chim);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.10,10,8), brass);
+  dome.position.set(0.16,0.62,0); g.add(dome);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.75,0.14,0.62), black);
+  frame.position.set(0,0.17,0); g.add(frame);
+  for(const wx of [-0.55,0.0,0.55]) for(const wz of [-0.3,0.3]){
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.05,10), black);
+    w.rotation.x = Math.PI/2; w.position.set(wx,0.14,wz); g.add(w);
+  }
+  g.traverse(o=>{ if(o.isMesh){ o.castShadow=true; } });
+  outer.userData.len = 1.9;
+  outer.userData.body = g;       // seam for anything mounted in body space
+  return outer;
+}
+function buildWagon(color){
+  const outer = new THREE.Group();
+  const g = new THREE.Group();
+  g.rotation.y = -Math.PI/2;     // same +X body → +Z car convention as the loco
+  outer.add(g);
+  const m = new THREE.MeshStandardMaterial({ color, roughness:0.7 });
+  const black = new THREE.MeshStandardMaterial({ color:0x1a1715, roughness:0.5 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.35,0.55,0.62), m);
+  body.position.y = 0.44; g.add(body);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.45,0.1,0.6), black);
+  frame.position.y = 0.16; g.add(frame);
+  for(const wx of [-0.45,0.45]) for(const wz of [-0.29,0.29]){
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.05,10), black);
+    w.rotation.x = Math.PI/2; w.position.set(wx,0.12,wz); g.add(w);
+  }
+  g.traverse(o=>{ if(o.isMesh) o.castShadow=true; });
+  outer.userData.len = 1.6;
+  outer.userData.body = g;
+  return outer;
+}
+const consist = [buildTrain(), buildWagon(0x7a3b2c), buildWagon(0x6b5a3a)];
+const trainRoot = new THREE.Group();
+for(const c of consist) trainRoot.add(c);
+trainRoot.visible = false;
+scene.add(trainRoot);
+
+const headlamp = new THREE.PointLight(0xffdca0, 0, 8, 2);
+consist[0].userData.body.add(headlamp); headlamp.position.set(0.9,0.5,0);
+
+// smoke
+const puffMat = new THREE.MeshBasicMaterial({ color:0xcfc6b8, transparent:true, opacity:0.5, depthWrite:false });
+const puffs = [];
+for(let i=0;i<70;i++){
+  const p = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1,0), puffMat.clone());
+  p.visible=false; scene.add(p); puffs.push({m:p, t:0, life:0, v:new THREE.Vector3()});
+}
+let puffTimer = 0;
+function emitPuff(pos, effort){
+  for(const p of puffs){ if(p.life<=0){
+    p.m.position.copy(pos); p.m.visible=true; p.t=0;
+    p.life = 1.6 + effort*1.4;
+    p.v.set((Math.random()-0.5)*0.25, 0.5+effort*0.5, (Math.random()-0.5)*0.25);
+    p.m.scale.setScalar(0.5+effort*0.4);
+    return;
+  }}
+}
+function stepPuffs(dt){
+  for(const p of puffs){
+    if(p.life<=0) continue;
+    p.t += dt; p.life -= dt;
+    p.m.position.addScaledVector(p.v, dt);
+    p.v.y *= (1 - 0.5*dt);
+    p.m.scale.addScalar(0.55*dt);
+    p.m.material.opacity = Math.max(0, 0.5 * (p.life/2.4));
+    if(p.life<=0) p.m.visible=false;
+  }
+}
+
+// ───────────────────────────────────────────────────────────── sim state
+let mode = 'lay';            // 'lay' | 'run'
+let ghostOffset = 0;         // extra height the surveyor is deliberately holding
+let ghostPos = null;         // snapped world point under cursor
+let ghostGrade = 0, ghostDeflect = 0, ghostValid = false;
+let ghostEl = null;          // last pegElevation() result under the cursor
+let ghostWhy = '';           // why the peg can't go here
+let shiftHeld = false;       // override: ignore the grade clamp and force it
+
+const run = { s:0, v:0, dir:1, stalled:false, wait:0, done:false, arrived:0 };
+
+// Standing next to the platform isn't arriving — the rail has to be AT its
+// height. This is what stops a line that passes under Crag End counting.
+function atPlatform(n, site){
+  return Math.hypot(n.x-site.x, n.z-site.z) < STATION_R && Math.abs(n.y-site.h) < 0.15;
+}
+function connected(){
+  if(nodes.length<2) return false;
+  const a = nodes[0], b = nodes[nodes.length-1];
+  return (atPlatform(a,siteA) && atPlatform(b,siteB)) ||
+         (atPlatform(a,siteB) && atPlatform(b,siteA));
+}
+
+function earthworkCost(){
+  if(!corridor.length) return 0;
+  let c = totalLen * 1.2;
+  for(const s of corridor){
+    const d = Math.abs(s.y - baseAt(s.x,s.z));
+    c += d*d*0.9 + d*1.1;
+  }
+  return Math.round(c);
+}
+
+function startRun(){
+  if(nodes.length<2) return;
+  mode = 'run';
+  // always set off from the lower end — the climb is the point
+  const upFirst = nodes[0].y <= nodes[nodes.length-1].y;
+  run.s = upFirst ? 0 : totalLen;
+  run.dir = upFirst ? 1 : -1;
+  run.v = 0; run.stalled=false; run.wait=0; run.done=false; run.arrived=0;
+  trainRoot.visible = true;
+  headlamp.intensity = 5;
+  ghostGroup.visible = false;
+  document.getElementById('tRun').classList.add('on');
+  document.getElementById('tRun').textContent = '■ STOP';
+  banner('', false);
+  updateHUD();          // lets the final tutorial lesson notice the run and close
+}
+function stopRun(){
+  mode = 'lay';
+  trainRoot.visible = false;
+  headlamp.intensity = 0;
+  ghostGroup.visible = true;
+  document.getElementById('tRun').classList.remove('on');
+  document.getElementById('tRun').textContent = '▶ RUN';
+  banner('', false);
+  updateHUD();
+}
+
+const COUPLING = 0.28;
+function placeCars(){
+  for(let i=0;i<consist.length;i++){
+    // Distance back to car i is the chain of ADJACENT half-length pairs. The
+    // old form referenced consist[i] inside the k loop, so every car ahead
+    // contributed this car's half-length again and the rake stretched apart.
+    let back = 0;
+    for(let k=1;k<=i;k++)
+      back += consist[k-1].userData.len*0.5 + consist[k].userData.len*0.5 + COUPLING;
+    const cs = clamp(run.s - run.dir*back, 0, totalLen);
+    const p = pointAtS(cs, new THREE.Vector3());
+    const t = tangentAtS(cs, new THREE.Vector3()).multiplyScalar(run.dir);
+    const c = consist[i];
+    c.position.set(p.x, p.y+0.06, p.z);
+    const yaw = Math.atan2(t.x, t.z);
+    const pitch = -Math.asin(clamp(t.y,-1,1));
+    c.rotation.set(0,0,0);
+    c.rotateY(yaw); c.rotateX(pitch);
+  }
+}
+
+function stepRun(dt){
+  if(!curve || totalLen<=0) return;
+  if(run.done){
+    run.wait -= dt;
+    if(run.wait<=0){ run.dir *= -1; run.done=false; run.v=0; banner('', false); }
+    placeCars(); return;
+  }
+  const slope = slopeAtS(run.s) * run.dir;           // rise along direction of travel
+  const speed = Math.abs(run.v);
+  // Wheelslip is a CLIFF, not a slope. Once the grade demands more than the
+  // railhead will give, the wheels spin and effort collapses to a fraction —
+  // she loses her feet rather than gently slowing. Without this, a train at
+  // 3 m/s coasts ~70m up a grade it cannot hold and arrives anyway, which made
+  // every marginal weather call a lie.
+  const slipping = G*slope > aMax();
+  run.slipping = slipping;
+  const drive = slipping ? aMax()*0.40
+                         : aMax() * clamp((V_MAX - speed)/(V_MAX*0.25), 0, 1);
+  const a = drive - G*slope - DRAG*run.v*speed;
+  run.v += a*dt;
+  run.s += run.dir * run.v * dt;
+
+  const effort = clamp((G*Math.max(0,slope))/aMax(), 0, 1);
+  puffTimer -= dt * (0.9 + effort*3.4 + speed*0.5);
+  if(puffTimer<=0 && speed>0.02){
+    puffTimer = 1;
+    const cp = consist[0].userData.body.localToWorld(new THREE.Vector3(0.62,0.86,0));
+    emitPuff(cp, effort);
+  }
+
+  // Stall = the engine cannot overcome the grade, whether it rolls back or is
+  // simply pinned at the foot of the line. Testing rollback velocity alone
+  // misses a train that starts on a wall, because s clamps at 0 and v resets.
+  const cannotPull = (drive - G*slope) < 0;
+  if(!run.stalled && cannotPull && speed < 0.05){
+    run.stalled = true;
+    const pct = (Math.abs(slope)*100).toFixed(1);
+    banner(`WHEELSLIP ON THE ${pct}% — ${SEASONS[season].rail} WILL ONLY TAKE ${(holdGrade()*100).toFixed(1)}%`, true, 'bad');
+  } else if(!run.stalled && run.v < -0.25){
+    run.stalled = true;
+    banner(`SHE'S LOST HER FEET — ROLLING BACK.`, true, 'bad');
+  }
+  if(run.stalled && run.v > 0.05){ run.stalled=false; banner('', false); }
+
+  const atEnd = (run.dir>0 && run.s>=totalLen) || (run.dir<0 && run.s<=0);
+  if(atEnd){
+    run.s = clamp(run.s, 0, totalLen);
+    run.v = 0; run.done = true; run.wait = 2.4; run.arrived++;
+    if(connected() && run.arrived===1){
+      // She got through THIS season. That's the thing worth banking.
+      const first = !seasonsHeld[season];
+      seasonsHeld[season] = true;
+      const all = seasonsHeld.every(Boolean);
+      if(all)        banner('SHE HOLDS ALL FOUR SEASONS. THE LINE IS OPEN ALL YEAR.', true, 'good');
+      else if(first) banner(`THROUGH IN ${SEASONS[season].name}. THE YEAR TURNS…`, true, 'good');
+      else           banner('ARRIVED', true);
+      if(!all) setTimeout(advanceSeason, 2600);
+      updateHUD();
+    } else {
+      banner('ARRIVED', true);
+    }
+  }
+  if(run.s<=0 && run.v<0){ run.s=0; run.v=0; }
+  placeCars();
+}
+
+// ───────────────────────────────────────────────────────────── HUD
+const $ = id => document.getElementById(id);
+function advanceSeason(){
+  if(mode==='run') stopRun();
+  season = (season+1) % SEASONS.length;
+  applySeason();
+}
+function fmtGrade(el, g){
+  const pct = Math.abs(g)*100;
+  el.textContent = (g>=0?'+':'−') + pct.toFixed(1) + '%';
+  el.className = 'v ' + (pct > holdGrade()*100 ? 'bad' : pct > ruling*92 ? 'warn' : 'good');
+}
+function updateHUD(){
+  if(ghostPos && nodes.length){
+    fmtGrade($('sGrade'), ghostGrade);
+    const dd = ghostDeflect*180/Math.PI;
+    $('sCurve').textContent = nodes.length<2 ? '—' : dd.toFixed(0)+'°';
+    $('sCurve').className = 'v ' + (nodes.length<2 ? '' : dd > MAX_DEFLECT*180/Math.PI ? 'bad' : dd>38 ? 'warn' : 'good');
+  } else {
+    $('sGrade').textContent = '—'; $('sGrade').className='v';
+    $('sCurve').textContent = '—'; $('sCurve').className='v';
+  }
+  if(nodes.length>=2){
+    fmtGrade($('sRuling'), rulingGrade);
+    $('sRuling').textContent = (rulingGrade*100).toFixed(1)+'%';
+  } else { $('sRuling').textContent='—'; $('sRuling').className='v'; }
+  // the formation's actual cut/fill at the cursor — the real price of the route
+  const cf = ghostEl ? ghostEl.cutFill : 0;
+  const label = Math.abs(cf) < 0.06 ? 'ON GRADE'
+    : (cf > 0 ? '+' : '−') + Math.abs(cf).toFixed(1) + ' m ' + (cf > 0 ? 'FILL' : 'CUT');
+  $('sOffset').textContent = ghostPos ? label : '—';
+  $('sOffset').className = 'v ' + (Math.abs(cf) > MAX_EW ? 'bad' : Math.abs(cf) > 2.2 ? 'warn' : '');
+  $('sLen').textContent = Math.round(totalLen) + ' m';
+  $('sCost').textContent = '£' + earthworkCost().toLocaleString();
+
+  updateWeather();
+  const conn = connected();
+  const st = $('objState');
+  if(conn && rulingGrade > RULING_MAX + 1e-6){
+    st.textContent = `OPEN — BUT ${(rulingGrade*100).toFixed(1)}% IS FORCED`;
+    st.style.color = 'var(--bad)';
+  } else if(conn && rulingGrade > holdGrade()){
+    // The heart of it: the line is fine, the WEATHER isn't.
+    st.textContent = `OPEN — TOO SLICK FOR ${SEASONS[season].name} (${(holdGrade()*100).toFixed(1)}%)`;
+    st.style.color = 'var(--bad)';
+  } else if(conn){
+    st.textContent = `OPEN — SHE'LL LIFT IT TODAY`; st.style.color = 'var(--good)';
+  } else {
+    // The useful nag: if the railhead has reached Crag End in plan but not in
+    // height, say by how much and what it would cost in extra run to fix.
+    let msg = 'NOT CONNECTED';
+    if(ghostEl && ghostEl.nearVillage && !ghostEl.station && nodes.length){
+      const s = ghostEl.shortfall;
+      msg = `PLATFORM IS ${Math.abs(s).toFixed(1)} m ${s>0?'ABOVE':'BELOW'} THE RAILHEAD`;
+    } else if(nodes.length){
+      const last = nodes[nodes.length-1];
+      if(Math.hypot(last.x-siteB.x, last.z-siteB.z) < STATION_R+2 && Math.abs(last.y-siteB.h) >= 0.15){
+        const s = siteB.h - last.y;
+        msg = `${Math.abs(s).toFixed(1)} m ${s>0?'SHORT OF':'ABOVE'} THE PLATFORM — ${Math.ceil(Math.abs(s)/ruling)} m MORE RUN`;
+      }
+    }
+    st.textContent = msg; st.style.color = 'var(--warn)';
+  }
+
+  $('tRun').disabled = nodes.length < 2;
+  $('tUndo').disabled = nodes.length === 0;
+  $('tClear').disabled = nodes.length === 0;
+  if(typeof tutCheck === 'function') tutCheck();
+}
+let bannerTimer = 0;
+function banner(text, show, kind){
+  const b = $('banner');
+  if(!show){ b.classList.remove('show'); return; }
+  b.textContent = text;
+  b.style.color = kind==='bad' ? 'var(--bad)' : kind==='good' ? 'var(--good)' : 'var(--ink)';
+  b.classList.add('show');
+}
+
+// ───────────────────────────────────────────────────────────── input
+const ray = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let downAt = null;
+
+function updateGhost(){
+  if(mode!=='lay' || !ghostPos){ ghostGroup.visible = mode==='lay'; return; }
+  ghostGroup.visible = true;
+  const last = nodes.length ? nodes[nodes.length-1] : null;
+  const el = pegElevation(ghostPos.x, ghostPos.z, last, ghostOffset, shiftHeld);
+  ghostEl = el;
+  ghostGrade = el.grade;
+
+  ghostPeg.position.set(ghostPos.x, el.y+0.25, ghostPos.z);
+  const stemH = Math.max(0.01, Math.abs(el.cutFill));
+  ghostStem.position.set(ghostPos.x, (el.y+el.ground)/2, ghostPos.z);
+  ghostStem.scale.set(1, stemH, 1);
+  ghostStem.visible = stemH > 0.06;
+
+  ghostWhy = '';
+  if(last){
+    const run = Math.hypot(ghostPos.x-last.x, ghostPos.z-last.z);
+    if(nodes.length>=2){
+      const prev = nodes[nodes.length-2];
+      const a = Math.atan2(last.z-prev.z, last.x-prev.x);
+      const b = Math.atan2(ghostPos.z-last.z, ghostPos.x-last.x);
+      let d = Math.abs(b-a); if(d>Math.PI) d = 2*Math.PI-d;
+      ghostDeflect = d;
+    } else ghostDeflect = 0;
+
+    ghostValid = true;
+    if(run <= 0.5){ ghostValid=false; ghostWhy='TOO CLOSE TO THE LAST PEG'; }
+    else if(ghostDeflect > MAX_DEFLECT){ ghostValid=false; ghostWhy='THAT CURVE IS TOO TIGHT FOR THE STOCK'; }
+    else if(Math.abs(el.cutFill) > MAX_EW){
+      ghostValid=false;
+      ghostWhy = el.cutFill>0
+        ? `A ${el.cutFill.toFixed(1)} m EMBANKMENT WON'T STAND`
+        : `A ${(-el.cutFill).toFixed(1)} m CUTTING IS TOO DEEP`;
+    }
+    else if(Math.abs(el.grade) > RULING_MAX){ ghostWhy = 'FORCED — NOTHING WILL CLIMB THIS'; }
+
+    const col = !ghostValid ? 0xd0533f
+      : Math.abs(el.grade) > RULING_MAX ? 0xd0533f
+      : Math.abs(el.grade) > WARN_GRADE || Math.abs(el.cutFill) > 2.2 ? 0xdfa63c : 0x7fbf5a;
+    ghostLineMat.color.setHex(col);
+    ghostLine.geometry.setFromPoints([
+      new THREE.Vector3(last.x, last.y+0.1, last.z),
+      new THREE.Vector3(ghostPos.x, el.y+0.1, ghostPos.z)
+    ]);
+    ghostLine.visible = true;
+  } else {
+    ghostValid = true; ghostLine.visible = false; ghostGrade = 0; ghostDeflect = 0;
+  }
+}
+
+renderer.domElement.addEventListener('pointermove', e=>{
+  ptr.x = (e.clientX/innerWidth)*2 - 1;
+  ptr.y = -(e.clientY/innerHeight)*2 + 1;
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObject(terrain, false)[0];
+  if(hit){
+    ghostPos = {
+      x: clamp(Math.round(hit.point.x/SNAP)*SNAP, -BW/2+1, BW/2-1),
+      z: clamp(Math.round(hit.point.z/SNAP)*SNAP, -BD/2+1, BD/2-1)
+    };
+  } else ghostPos = null;
+  updateGhost(); updateHUD();
+});
+renderer.domElement.addEventListener('pointerdown', e=>{ if(e.button===0) downAt={x:e.clientX,y:e.clientY}; });
+renderer.domElement.addEventListener('pointerup', e=>{
+  if(e.button!==0 || !downAt) return;
+  const moved = Math.hypot(e.clientX-downAt.x, e.clientY-downAt.y);
+  downAt = null;
+  if(moved > 5 || mode!=='lay' || !ghostPos) return;
+  if(!ghostValid && nodes.length){
+    banner(ghostWhy || 'CANNOT BUILD THERE', true, 'bad');
+    clearTimeout(bannerTimer); bannerTimer = setTimeout(()=>banner('',false), 3000);
+    return;
+  }
+  const last = nodes.length ? nodes[nodes.length-1] : null;
+  const el = pegElevation(ghostPos.x, ghostPos.z, last, ghostOffset, shiftHeld);
+  nodes.push({ x:ghostPos.x, y:el.y, z:ghostPos.z });
+  rebuildTrack(); rebuildPegs(); updateGhost();
+});
+
+// Overlays cover the canvas so they eat clicks, but key handlers are on window
+// and would happily run the train behind the title card.
+function uiBlocked(){
+  return !document.getElementById('opening').classList.contains('hide')
+      || !document.getElementById('settings').classList.contains('hide');
+}
+addEventListener('keydown', e=>{
+  if(uiBlocked()) return;
+  if(e.target && e.target.tagName === 'INPUT') return;
+  if(e.key==='Shift' && !shiftHeld){ shiftHeld = true; updateGhost(); updateHUD(); }
+  if(e.key==='q'||e.key==='Q'){ ghostOffset = clamp(ghostOffset - 0.2, -6, 6); updateGhost(); updateHUD(); }
+  if(e.key==='e'||e.key==='E'){ ghostOffset = clamp(ghostOffset + 0.2, -6, 6); updateGhost(); updateHUD(); }
+  if(e.key==='r'||e.key==='R'){ ghostOffset = 0; updateGhost(); updateHUD(); }
+  if(e.key==='Backspace'){ e.preventDefault(); undo(); }
+  if(e.key==='Enter'){ mode==='lay' ? startRun() : stopRun(); }
+});
+addEventListener('keyup', e=>{
+  if(e.key==='Shift'){ shiftHeld = false; updateGhost(); updateHUD(); }
+});
+function undo(){ if(!nodes.length||mode!=='lay') return; nodes.pop(); rebuildTrack(); rebuildPegs(); updateGhost(); }
+$('tUndo').onclick = undo;
+$('tClear').onclick = ()=>{ if(mode!=='lay') return; nodes.length=0; rebuildTrack(); rebuildPegs(); };
+$('tRun').onclick = ()=>{ mode==='lay' ? startRun() : stopRun(); };
+$('tLay').onclick = ()=>{ if(mode==='run') stopRun(); };
+
+// ───────────────────────────────────────────────────────────── tilt-shift
+const TiltShift = {
+  uniforms: {
+    tDiffuse:{value:null}, dir:{value:new THREE.Vector2(1/innerWidth,0)},
+    focus:{value:0.54}, band:{value:0.15}, strength:{value:0.0040}
+  },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform vec2 dir;
+    uniform float focus; uniform float band; uniform float strength;
+    varying vec2 vUv;
+    void main(){
+      float d = abs(vUv.y - focus);
+      float t = clamp((d - band)/0.42, 0.0, 1.0);
+      float r = t*t*strength;
+      vec4 sum = vec4(0.0); float wsum = 0.0;
+      for(int i=-6;i<=6;i++){
+        float fi = float(i);
+        float w = exp(-fi*fi/16.0);
+        sum += texture2D(tDiffuse, vUv + dir*fi*r*300.0) * w;
+        wsum += w;
+      }
+      gl_FragColor = sum/wsum;
+    }`
+};
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const tsH = new ShaderPass(TiltShift); composer.addPass(tsH);
+const tsV = new ShaderPass(TiltShift); composer.addPass(tsV);
+function sizePasses(){
+  tsH.uniforms.dir.value.set(1/innerWidth, 0);
+  tsV.uniforms.dir.value.set(0, 1/innerHeight);
+}
+sizePasses();
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  sizePasses();
+});
+
+// ───────────────────────────────────────────────────────────── boot + loop
+// ───────────────────────────────────────────────────────────── board generator
+// Reject boards that are unfair in either direction: too flat to need a
+// switchback, or not climbable at all. Every accepted mountain is provably
+// winnable, because probeSolvable() actually finds a line.
+let boardInfo = { seed:1, gain:0, direct:0, solLen:0, tries:0 };
+function newBoard(seed){
+  let s = ((seed|0) % 100000 + 100000) % 100000 || 1;
+  for(let tries=0; tries<60; tries++){
+    buildField(s);
+    const gain   = siteB.h - siteA.h;
+    const dist   = Math.hypot(siteB.x-siteA.x, siteB.z-siteA.z);
+    const direct = gain/dist;
+    // Needs real teeth: a meaningful climb the direct line can't possibly hold.
+    // The waterline check matters — findSite rewards flatness, and the terrain's
+    // clamp floor makes the riverbed perfectly flat, so the valley station will
+    // happily be placed underwater if nothing stops it.
+    if(gain >= 3.6 && direct >= 0.115 && dist > 18 && siteA.h > WATER_Y + 0.6){
+      const sol = probeSolvable(RULING_MAX);
+      if(sol.ok && sol.len >= gain/RULING_MAX*0.9){
+        // Which declared grades will physically fit here? A gentler line needs
+        // more run, and a small board may simply have nowhere to put it — that
+        // "you cannot have an all-weather railway on THIS mountain" is the
+        // trade-off, so it has to be known up front rather than discovered
+        // twenty minutes into a survey.
+        const fits = {};
+        for(const o of RULING_OPTS)
+          fits[o.g] = o.g===RULING_MAX ? true : probeSolvable(o.g).ok;
+        boardInfo = { seed:s, gain:+gain.toFixed(2), direct:+(direct*100).toFixed(1),
+                      solLen:Math.round(sol.len), tries, fits };
+        if(fits[ruling] === false) ruling = RULING_MAX;   // don't strand the player
+        finishBoard();
+        return boardInfo;
+      }
+    }
+    s = (s*1664525 + 1013904223) % 100000 || 1;   // next candidate
+  }
+  boardInfo = { seed:s, gain:+(siteB.h-siteA.h).toFixed(2), direct:0, solLen:0, tries:60, fallback:true };
+  finishBoard();
+  return boardInfo;
+}
+function finishBoard(){
+  scatterTrees();
+  rebuildVillages();
+  nodes.length = 0;
+  ghostOffset = 0;
+  season = 0; seasonsHeld = [false,false,false,false];   // a new mountain, a new year
+  rebuildTrack();     // seeds dispH, the terrain mesh, and replants the trees
+  rebuildPegs();
+}
+
+// ───────────────────────────────────────────────────────────── weather + season
+// Palette per season. Cheap, and it does most of the work of selling the fact
+// that the railhead conditions have actually changed.
+const SEASON_LOOK = [
+  { key:0xffd7a0, ki:3.4, hemiS:0x9dc0ee, hemiG:0x4a3a2a, hemi:1.05, fog:0x0a0806, snow:0.0,  tint:[1,1,1] },
+  { key:0xffbe72, ki:3.0, hemiS:0xb8c6de, hemiG:0x50412c, hemi:0.95, fog:0x0d0805, snow:-1.6, tint:[1.14,0.94,0.66] },
+  { key:0xdfe6ff, ki:2.5, hemiS:0xc8dcff, hemiG:0x555a63, hemi:1.25, fog:0x0b0c10, snow:-6.8, tint:[0.86,0.90,0.97] },
+  { key:0xffe6b4, ki:3.1, hemiS:0xa8c8f0, hemiG:0x46503a, hemi:1.10, fog:0x0a0a07, snow:-2.4, tint:[0.94,1.06,0.88] },
+];
+let snowShift = 0, seasonTint = [1,1,1];
+
+function applySeason(){
+  const L = SEASON_LOOK[season];
+  key.color.setHex(L.key); key.intensity = L.ki;
+  hemi.color.setHex(L.hemiS); hemi.groundColor.setHex(L.hemiG); hemi.intensity = L.hemi;
+  scene.fog.color.setHex(L.fog); scene.background.setHex(L.fog);
+  snowShift = L.snow; seasonTint = L.tint;
+  water.material.color.setHex(season===2 ? 0x51707a : 0x4a7f88);
+  rebuildTerrainMesh();      // snow line + ground tint are baked into vertex colour
+  updateHUD();
+}
+function updateWeather(){
+  const S = SEASONS[season], hold = holdGrade();
+  $('wxSeason').textContent = S.name;
+  $('wxRail').textContent = S.rail;
+  $('wxHold').textContent = (hold*100).toFixed(1)+'%';
+  $('wxHold').style.color = hold >= ruling ? 'var(--good)' : 'var(--bad)';
+  $('wxNote').textContent = hold >= ruling
+    ? `Your ${(ruling*100).toFixed(0)}% line is within the railhead today.`
+    : `Your ${(ruling*100).toFixed(0)}% line is steeper than today's railhead. She'll slip.`;
+  const pips = $('pips');
+  if(pips.childElementCount !== 4){
+    pips.innerHTML = SEASONS.map(s=>`<div class="pip">${s.name.slice(0,3)}</div>`).join('');
+  }
+  [...pips.children].forEach((el,i)=>{
+    el.classList.toggle('held', seasonsHeld[i]);
+    el.classList.toggle('now', i===season);
+  });
+}
+
+// Re-lay the EXISTING plan under a new ruling grade. Keeping the pegs' x/z and
+// only recomputing heights means changing your mind costs you the argument, not
+// the twenty minutes of routing.
+function resurvey(){
+  if(!nodes.length) return;
+  const plan = nodes.map(n=>[n.x, n.z]);
+  nodes.length = 0;
+  for(const p of plan){
+    const last = nodes.length ? nodes[nodes.length-1] : null;
+    const el = pegElevation(p[0], p[1], last, 0, false);
+    nodes.push({ x:p[0], y:el.y, z:p[1] });
+  }
+  rebuildTrack(); rebuildPegs(); updateGhost();
+}
+function buildRulingSeg(){
+  const seg = $('segRul');
+  seg.innerHTML = RULING_OPTS.map(o=>
+    `<button data-g="${o.g}" title="${o.blurb}">${(o.g*100).toFixed(0)}%<br><span style="font-size:8px;opacity:.75">${o.name}</span></button>`
+  ).join('');
+  for(const b of seg.querySelectorAll('button')){
+    b.onclick = ()=>{
+      if(mode==='run') stopRun();
+      ruling = +b.dataset.g;
+      resurvey(); refreshRulingSeg(); updateHUD();
+    };
+  }
+}
+function refreshRulingSeg(){
+  for(const b of $('segRul').querySelectorAll('button')){
+    const g = +b.dataset.g;
+    b.classList.toggle('on', Math.abs(g-ruling) < 1e-9);
+    const fits = boardInfo.fits ? boardInfo.fits[b.dataset.g] : true;
+    b.disabled = fits === false;
+  }
+  const f = boardInfo.fits || {};
+  const no = RULING_OPTS.filter(o=>f[o.g] === false).map(o=>(o.g*100).toFixed(0)+'%');
+  $('wxFit').textContent = no.length
+    ? `This mountain has no room for a ${no.join(' or ')} line.`
+    : `Every grade fits on this mountain.`;
+}
+
+// ───────────────────────────────────────────────────────────── settings
+const TS_PRESET = [ {b:0.9, s:0.0}, {b:0.20, s:0.0026}, {b:0.15, s:0.0040} ];
+const TREE_PRESET = [ 0.4, 1.0, 1.5 ];
+const opts = { ts:2, shadows:1, gradeTint:1, trees:1 };
+let treeScale = 1;
+
+function applyOpts(){
+  const p = TS_PRESET[opts.ts];
+  for(const q of [tsH,tsV]){ q.uniforms.band.value=p.b; q.uniforms.strength.value=p.s; }
+  renderer.shadowMap.enabled = !!opts.shadows;
+  key.castShadow = !!opts.shadows;
+  scene.traverse(o=>{ if(o.isMesh || o.isInstancedMesh) o.material.needsUpdate = true; });
+  treeScale = TREE_PRESET[opts.trees];
+  for(const [id,val] of [['segTS',opts.ts],['segSh',opts.shadows],['segGT',opts.gradeTint],['segTr',opts.trees]]){
+    for(const b of document.getElementById(id).querySelectorAll('button'))
+      b.classList.toggle('on', +b.dataset.v === val);
+  }
+}
+function bindSeg(id, keyName, after){
+  for(const b of document.getElementById(id).querySelectorAll('button')){
+    b.onclick = ()=>{ opts[keyName] = +b.dataset.v; applyOpts(); if(after) after(); };
+  }
+}
+bindSeg('segTS','ts');
+bindSeg('segSh','shadows');
+bindSeg('segGT','gradeTint', ()=>rebuildTrack());
+bindSeg('segTr','trees', ()=>{ scatterTrees(); refreshTrees(); });
+
+// ───────────────────────────────────────────────────────────── tutorial
+// Each step waits on a real game condition rather than a click, so the lesson
+// is the thing you'd have learned anyway — just narrated.
+// Every condition has an escape hatch — a lesson that waits on one exact
+// gesture will trap anyone who plays it in a different order.
+const TUT = [
+  { t:`Every line starts at a platform. Put your first peg on <b>LOWTHWAITE</b>
+       — the amber lamp down in the valley.`,
+    done:()=> nodes.length>=1 },
+  { t:`Lay a few more. Watch <b>NEXT GRADE</b>: you've declared this a
+       <b>${'${RUL}'}%</b> line, so the survey refuses to promise steeper.
+       The height is chosen for you — you choose <i>where</i>.`,
+    done:()=> nodes.length>=4 },
+  { t:`Now aim at <b>CRAG END</b>, the blue lamp, and watch what happens. The
+       line climbs 6% while the mountain climbs three times that — so you'd
+       arrive <i>below</i> the platform, and <b>CUT / FILL</b> runs away from you.`,
+    done:()=> tutSawShortfall || nodes.length>=8 },
+  { t:`That's the whole game: you can't out-climb it, you can only give yourself
+       more <b>run</b>. Go <i>across</i> the hillside, out to the edge of the
+       board, curve back and climb again. Roughly <b>${'${NEED}'}m</b> of track
+       does it. <b>Q</b>/<b>E</b> force a cutting or embankment to hold height.`,
+    done:()=> connected() },
+  { t:`The line is open. Press <b>ENTER</b> and watch her work.`,
+    done:()=> mode==='run' },
+  { t:`She's through — and now <b>the year turns</b>. Wet leaves and frost won't
+       hold a steep line. Watch <b>THE RAILHEAD TODAY</b>: if your line is
+       steeper than that number, her wheels will spin. A gentler ruling grade
+       costs you a lot of track, and keeps the line open all year. That's the
+       whole trade — see how many seasons this one holds.`,
+    done:()=> seasonsHeld.filter(Boolean).length >= 2 },
+];
+let tutOn = false, tutStep = 0, tutSawShortfall = false;
+function tutShow(){
+  const box = $('tut');
+  if(!tutOn || tutStep>=TUT.length){ box.classList.remove('show'); return; }
+  box.classList.add('show');
+  $('tutStep').textContent = `SURVEY LESSON ${tutStep+1} / ${TUT.length}`;
+  const need = Math.max(60, Math.round((siteB.h-siteA.h)/ruling/10)*10);
+  $('tutText').innerHTML = TUT[tutStep].t
+    .replace('${NEED}', need)
+    .replace('${RUL}', (ruling*100).toFixed(0));
+}
+function tutCheck(){
+  if(!tutOn || tutStep>=TUT.length) return;
+  if(ghostEl && ghostEl.nearVillage && !ghostEl.station && Math.abs(ghostEl.shortfall)>0.3)
+    tutSawShortfall = true;
+  // advance greedily — a player who solves two lessons in one go shouldn't have
+  // to undo something to collect the step they already earned
+  let moved = false;
+  while(tutStep < TUT.length && TUT[tutStep].done()){ tutStep++; moved = true; }
+  if(moved){
+    const tick = $('tutTick'); tick.classList.add('show');
+    setTimeout(()=>tick.classList.remove('show'), 1100);
+    tutShow();
+  }
+}
+$('tutSkip').onclick = ()=>{ tutOn=false; tutShow(); };
+
+// ───────────────────────────────────────────────────────────── opening
+function startGame(withTutorial){
+  $('opening').classList.add('hide');
+  $('settings').classList.add('hide');
+  tutOn = !!withTutorial; tutStep = 0; tutSawShortfall = false;
+  tutShow(); updateHUD();
+}
+$('btnTut').onclick  = ()=> startGame(true);
+$('btnFree').onclick = ()=> startGame(false);
+$('btnSet').onclick  = ()=>{ $('settings').classList.remove('hide'); };
+$('btnBack').onclick = ()=>{
+  $('settings').classList.add('hide');
+  // only fall back to the opening if we never started
+  if(!$('opening').classList.contains('hide')) $('opening').classList.remove('hide');
+};
+$('btnRoll').onclick = ()=>{ const b=newBoard(Math.floor(Math.random()*100000)); $('seedIn').value=b.seed; nudgeBoard(); };
+$('btnSeed').onclick = ()=>{ const v=parseInt($('seedIn').value,10);
+  const b=newBoard(isNaN(v)?Math.floor(Math.random()*100000):v); $('seedIn').value=b.seed; nudgeBoard(); };
+function nudgeBoard(){
+  if(mode==='run') stopRun();
+  tutStep = 0; tutSawShortfall = false; tutShow(); updateHUD();
+}
+addEventListener('keydown', e=>{
+  if(e.key==='Escape'){
+    const s=$('settings');
+    if(!s.classList.contains('hide')) $('btnBack').onclick();
+    else if($('opening').classList.contains('hide')) s.classList.remove('hide');
+  }
+});
+
+// ───────────────────────────────────────────────────────────── boot
+const first = newBoard(Math.floor(Math.random()*100000));
+$('seedIn').value = first.seed;
+buildRulingSeg();
+refreshRulingSeg();
+applyOpts();
+applySeason();
+updateHUD();
+
+const clock = new THREE.Clock();
+let acc = 0;
+function frame(){
+  const dt = Math.min(clock.getDelta(), 0.05);
+  controls.update();
+  if(mode==='run') stepRun(dt);
+  stepPuffs(dt);
+  composer.render();
+  requestAnimationFrame(frame);
+}
+// Preview panels can report hidden and starve RAF — watchdog keeps the model turning.
+let lastFrame = performance.now();
+const origFrame = frame;
+function guarded(){ lastFrame = performance.now(); origFrame(); }
+requestAnimationFrame(guarded);
+setInterval(()=>{ if(performance.now()-lastFrame > 400) guarded(); }, 250);
+
+// debug hooks
+window.__dbg = {
+  THREE, scene, camera, nodes,
+  // getters, not values: buildField() REASSIGNS siteA/siteB every reseed, so a
+  // captured reference silently reports the first board's termini forever.
+  get siteA(){ return siteA; },
+  get siteB(){ return siteB; },
+  state:()=>({ mode, nodes:nodes.length, totalLen, rulingGrade, connected:connected(), run:{...run} }),
+  samples:()=>samples, grades:()=>gradeCols.slice(), cum:()=>cumLen.slice(),
+  consist, trainRoot, tangentAtS:(s)=>tangentAtS(s, new THREE.Vector3()),
+  newBoard, probeSolvable, boardInfo:()=>boardInfo, shape:()=>({...SHAPE, seed:SEED}),
+  tut:()=>({ on:tutOn, step:tutStep, saw:tutSawShortfall, total:TUT.length }),
+  opts:()=>({...opts}),
+  // weather / ruling seam
+  wx:()=>({ season, name:SEASONS[season].name, hold:+(holdGrade()*100).toFixed(2),
+            ruling:+(ruling*100).toFixed(1), held:[...seasonsHeld] }),
+  setSeason:(s)=>{ season=((s%SEASONS.length)+SEASONS.length)%SEASONS.length; applySeason(); },
+  setRuling:(g)=>{ ruling=g; resurvey(); refreshRulingSeg(); updateHUD(); },
+  holdTable:()=>SEASONS.map(s=>({season:s.name, rail:s.rail,
+                 holds:+(s.mu*adhesiveFrac(s.wagons)*100).toFixed(2)})),
+  advanceSeason,
+  // lay a route through [x,z] pairs using the same survey rules as the mouse
+  autoline:(pts, override)=>{
+    nodes.length=0;
+    const rej=[];
+    for(let k=0;k<pts.length;k++){
+      const p = pts[k];
+      const last = nodes.length ? nodes[nodes.length-1] : null;
+      const el = pegElevation(p[0], p[1], last, 0, !!override);
+      // mirror the checks a real click has to pass
+      if(last){
+        const run = Math.hypot(p[0]-last.x, p[1]-last.z);
+        if(run <= 0.5) rej.push({peg:k, at:p, why:'peg only '+run.toFixed(2)+'m from the last'});
+        if(Math.abs(el.cutFill) > MAX_EW) rej.push({peg:k, at:p, why:(el.cutFill>0?'fill ':'cut ')+Math.abs(el.cutFill).toFixed(2)+'m > '+MAX_EW});
+        if(nodes.length>=2){
+          const pv=nodes[nodes.length-2];
+          const a1=Math.atan2(last.z-pv.z, last.x-pv.x), a2=Math.atan2(p[1]-last.z, p[0]-last.x);
+          let d=Math.abs(a2-a1); if(d>Math.PI) d=2*Math.PI-d;
+          if(d > MAX_DEFLECT) rej.push({peg:k, at:p, why:'deflection '+(d*180/Math.PI).toFixed(0)+'° > 55°'});
+        }
+      }
+      nodes.push({x:p[0], y:el.y, z:p[1]});
+    }
+    rebuildTrack(); rebuildPegs();
+    let maxCF=0; for(const n of nodes) maxCF=Math.max(maxCF, Math.abs(n.y-baseAt(n.x,n.z)));
+    return { pegs:nodes.length, totalLen:+totalLen.toFixed(1), ruling:+(rulingGrade*100).toFixed(2),
+             maxCutFill:+maxCF.toFixed(2), connected:connected(),
+             buildable: rej.length===0, rejected:rej };
+  },
+  // step the run headlessly and report what happened
+  sim:(maxT)=>{
+    startRun();
+    let t=0, dt=1/60, guard=0;
+    const log={stalled:false, minV:99, maxV:0, arrived:false, t:0};
+    while(t < (maxT||120) && guard++ < 12000){
+      stepRun(dt); t+=dt;
+      if(run.stalled) log.stalled=true;
+      log.minV=Math.min(log.minV, run.v); log.maxV=Math.max(log.maxV, run.v);
+      if(run.arrived>0){ log.arrived=true; log.t=+t.toFixed(1); break; }
+    }
+    log.minV=+log.minV.toFixed(2); log.maxV=+log.maxV.toFixed(2);
+    log.finalS=+run.s.toFixed(1); log.totalLen=+totalLen.toFixed(1);
+    stopRun();
+    return log;
+  },
+  cam:(x,y,z,tx,ty,tz)=>{ camera.position.set(x,y,z); controls.target.set(tx||0,ty||3,tz||-1); controls.update(); },
+  start:startRun, stop:stopRun, step:(dt)=>stepRun(dt||1/60),
+  shot:(q)=>{ composer.render(); return renderer.domElement.toDataURL('image/jpeg', q||0.82); },
+  ts:(f,b,s)=>{ for(const p of [tsH,tsV]){ p.uniforms.focus.value=f; p.uniforms.band.value=b; p.uniforms.strength.value=s; } }
+};
+</script>
+</body>
+</html>
