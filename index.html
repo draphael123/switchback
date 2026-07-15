@@ -50,6 +50,16 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   .tool.on{background:var(--brass); border-color:var(--brass2); color:#160f07; font-weight:700;}
   .tool:disabled{opacity:.32; cursor:default;}
 
+  #cash{position:absolute; top:92px; left:18px; width:214px; padding:11px 13px;}
+  #cashTop{display:flex; justify-content:space-between; align-items:baseline;
+    font-size:9px; letter-spacing:.2em; color:var(--brass2);}
+  #cashVal{font-size:19px; font-weight:800; letter-spacing:.02em; color:var(--ink);}
+  #cashVal.broke{color:var(--bad);}
+  .crow{display:flex; justify-content:space-between; align-items:baseline; padding:3px 0;
+    font-size:10px;}
+  #cBreak{font-size:8px; color:var(--dim); margin-top:7px; line-height:1.6;
+    border-top:1px solid rgba(255,255,255,.06); padding-top:7px;}
+
   #stats{position:absolute; top:16px; right:18px; width:250px; padding:12px 14px;}
   #stats h2{font-size:9px; letter-spacing:.22em; color:var(--brass2); margin-bottom:8px;}
   .row{display:flex; justify-content:space-between; align-items:baseline;
@@ -157,6 +167,16 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
     <button class="tool" id="tUndo">UNDO</button>
     <button class="tool" id="tClear">CLEAR</button>
     <button class="tool" id="tRun" disabled>▶ RUN</button>
+    <button class="tool" id="tSet" title="Settings (Esc)">⚙</button>
+  </div>
+
+  <div id="cash" class="panel">
+    <div id="cashTop"><span>FUNDS</span><span id="cashVal">£1,200</span></div>
+    <div class="rule2"></div>
+    <div class="crow"><span class="k">THIS LINE</span><span class="v" id="cLine">£0</span></div>
+    <div class="crow"><span class="k">LEFT TO SPEND</span><span class="v" id="cFree">£1,200</span></div>
+    <div class="crow"><span class="k">TAX / SEASON</span><span class="v" id="cInc">£0</span></div>
+    <div id="cBreak"></div>
   </div>
 
   <div id="stats" class="panel">
@@ -1128,6 +1148,7 @@ function rebuildTrack(){
     }
   }
 
+  curCost = costBreakdown();
   applyEarthworks();
   refreshTrees();
   updateHUD();
@@ -1277,6 +1298,7 @@ let ghostPos = null;         // snapped world point under cursor
 let ghostGrade = 0, ghostDeflect = 0, ghostValid = false;
 let ghostEl = null;          // last pegElevation() result under the cursor
 let ghostWhy = '';           // why the peg can't go here
+let ghostMarginal = 0;       // what this next peg would add to the bill
 let shiftHeld = false;       // override: ignore the grade clamp and force it
 
 const run = { s:0, v:0, dir:1, stalled:false, wait:0, done:false, arrived:0 };
@@ -1293,15 +1315,55 @@ function connected(){
          (atPlatform(a,siteB) && atPlatform(b,siteA));
 }
 
-function earthworkCost(){
-  if(!corridor.length) return 0;
-  let c = totalLen * 1.2;
+// ───────────────────────────────────────────────────────────── the economy
+// Cost is what turns the ruling grade from a taste into a business decision: a
+// bold 6% line is cheap and earns two seasons a year; a gentle 4% line costs
+// roughly double and earns four. You cannot afford the gentle line up front —
+// you build the cheap one, run it, and buy your way to the better one.
+// Rates tuned by measuring real lines, not by feel. On a typical mountain:
+//   6% bold   ~£950  — fits the opening grant, earns 2 seasons a year
+//   5%        ~£1,600
+//   4% gentle ~£2,200 — about 3 years of running the bold line to afford
+// Keep the four items in the same ballpark as each other; an early pass had
+// tunnelling at 55/m, which made a 5% line £3,555 of which £2,501 was tunnel.
+const START_FUNDS   = 1200;
+const RAIL_PER_M    = 2.2;
+const EARTH_RATE    = 0.55;   // spoil shifted, per metre of formation
+const TRESTLE_PER_M = 10;     // timber over a gap
+const TUNNEL_PER_M  = 22;     // the expensive way through
+const TAX_PER_POP   = 2.0;    // £ per head, per season the line actually runs
+let funds = START_FUNDS, year = 1;
+
+function costBreakdown(){
+  const out = { rail:0, earth:0, trestle:0, tunnel:0, total:0 };
+  if(corridor.length < 2) return out;
+  const ds = totalLen / (corridor.length-1);      // arc length each sample owns
   for(const s of corridor){
-    const d = Math.abs(s.y - baseAt(s.x,s.z));
-    c += d*d*0.9 + d*1.1;
+    out.rail += RAIL_PER_M * ds;
+    const d = s.delta;                            // rail vs the ground under it
+    if(d > BRIDGE_H)        out.trestle += TRESTLE_PER_M * ds;
+    else if(d < -TUNNEL_D)  out.tunnel  += TUNNEL_PER_M * ds;
+    // spoil goes as depth² — a deep cutting is far worse than two shallow ones
+    else out.earth += (Math.abs(d)*0.9 + d*d*0.55) * EARTH_RATE * ds;
   }
-  return Math.round(c);
+  for(const k of ['rail','earth','trestle','tunnel']) out[k] = Math.round(out[k]);
+  out.total = out.rail + out.earth + out.trestle + out.tunnel;
+  return out;
 }
+// Cached per rebuild — the ghost consults this on every mouse move.
+let curCost = { rail:0, earth:0, trestle:0, tunnel:0, total:0 };
+const lineCost = ()=> curCost.total;
+// Capital is committed to the line, not burned: tearing it up frees the money.
+// Forgiving on purpose — the decision worth having is which line to build, not
+// whether you dare experiment.
+const available = ()=> funds - lineCost();
+
+const villages = [
+  { site:()=>siteA, name:'LOWTHWAITE', pop:140 },
+  { site:()=>siteB, name:'CRAG END',   pop:35  },
+];
+const seasonIncome = ()=> connected()
+  ? Math.round(villages.reduce((a,v)=> a + v.pop*TAX_PER_POP, 0)) : 0;
 
 function startRun(){
   if(nodes.length<2) return;
@@ -1389,6 +1451,9 @@ function stepRun(dt){
     run.stalled = true;
     const pct = (Math.abs(slope)*100).toFixed(1);
     banner(`WHEELSLIP ON THE ${pct}% — ${SEASONS[season].rail} WILL ONLY TAKE ${(holdGrade()*100).toFixed(1)}%`, true, 'bad');
+    // The quarter passes whether she ran or not. Retrying a stall would be free
+    // and pointless — the physics is deterministic. You just don't get paid.
+    if(connected()) setTimeout(()=>{ if(run.stalled && mode==='run') seasonLost(); }, 3200);
   } else if(!run.stalled && run.v < -0.25){
     run.stalled = true;
     banner(`SHE'S LOST HER FEET — ROLLING BACK.`, true, 'bad');
@@ -1400,14 +1465,12 @@ function stepRun(dt){
     run.s = clamp(run.s, 0, totalLen);
     run.v = 0; run.done = true; run.wait = 2.4; run.arrived++;
     if(connected() && run.arrived===1){
-      // She got through THIS season. That's the thing worth banking.
-      const first = !seasonsHeld[season];
+      // She got through: this season's traffic ran, so this season pays.
       seasonsHeld[season] = true;
-      const all = seasonsHeld.every(Boolean);
-      if(all)        banner('SHE HOLDS ALL FOUR SEASONS. THE LINE IS OPEN ALL YEAR.', true, 'good');
-      else if(first) banner(`THROUGH IN ${SEASONS[season].name}. THE YEAR TURNS…`, true, 'good');
-      else           banner('ARRIVED', true);
-      if(!all) setTimeout(advanceSeason, 2600);
+      const take = seasonIncome();
+      funds += take;
+      banner(`THROUGH IN ${SEASONS[season].name} — £${take.toLocaleString()} IN TAX RECEIPTS`, true, 'good');
+      setTimeout(advanceSeason, 2600);
       updateHUD();
     } else {
       banner('ARRIVED', true);
@@ -1419,9 +1482,23 @@ function stepRun(dt){
 
 // ───────────────────────────────────────────────────────────── HUD
 const $ = id => document.getElementById(id);
+function seasonLost(){
+  banner(`${SEASONS[season].name} LOST — THE LINE DIDN'T RUN. NO RECEIPTS.`, true, 'bad');
+  setTimeout(advanceSeason, 2200);
+}
 function advanceSeason(){
   if(mode==='run') stopRun();
   season = (season+1) % SEASONS.length;
+  if(season === 0){
+    year++;
+    // Towns grow by how well they were SERVED, not merely by being connected.
+    // A line open all year compounds at ~8%; a fair-weather line at ~4%. That
+    // is the gentle line's real dividend — it earns twice AND grows twice.
+    const ran = seasonsHeld.filter(Boolean).length;
+    if(ran > 0) for(const v of villages)
+      v.pop = Math.min(500, Math.round(v.pop * (1 + 0.02*ran) + ran));
+    seasonsHeld = [false,false,false,false];
+  }
   applySeason();
 }
 function fmtGrade(el, g){
@@ -1450,12 +1527,31 @@ function updateHUD(){
   $('sOffset').textContent = ghostPos ? label : '—';
   $('sOffset').className = 'v ' + (Math.abs(cf) > MAX_EW ? 'bad' : Math.abs(cf) > 2.2 ? 'warn' : '');
   $('sLen').textContent = Math.round(totalLen) + ' m';
-  $('sCost').textContent = '£' + earthworkCost().toLocaleString();
+  $('sCost').textContent = '£' + curCost.total.toLocaleString();
+
+  // ledger
+  const free = available();
+  const money = (n)=> (n<0?'−£':'£') + Math.abs(n).toLocaleString();
+  $('cashVal').textContent = money(funds);
+  $('cashVal').classList.toggle('broke', free < 0);
+  $('cLine').textContent = money(curCost.total);
+  $('cFree').textContent = money(free);
+  $('cFree').className = 'v ' + (free < 0 ? 'bad' : free < 120 ? 'warn' : 'good');
+  const inc = seasonIncome();
+  $('cInc').textContent = inc ? '£' + inc.toLocaleString() : '—';
+  $('cInc').className = 'v ' + (inc ? 'good' : '');
+  const bits = [];
+  if(curCost.rail)    bits.push(`rail £${curCost.rail.toLocaleString()}`);
+  if(curCost.earth)   bits.push(`earthworks £${curCost.earth.toLocaleString()}`);
+  if(curCost.trestle) bits.push(`trestles £${curCost.trestle.toLocaleString()}`);
+  if(curCost.tunnel)  bits.push(`tunnel £${curCost.tunnel.toLocaleString()}`);
+  $('cBreak').textContent = bits.length ? bits.join(' · ')
+    : `Lowthwaite ${villages[0].pop} souls · Crag End ${villages[1].pop} · year ${year}`;
 
   updateWeather();
   const conn = connected();
   const st = $('objState');
-  if(conn && rulingGrade > RULING_MAX + 1e-6){
+  if(conn && rulingGrade > ruling + 1e-6){
     st.textContent = `OPEN — BUT ${(rulingGrade*100).toFixed(1)}% IS FORCED`;
     st.style.color = 'var(--bad)';
   } else if(conn && rulingGrade > holdGrade()){
@@ -1517,6 +1613,15 @@ function updateGhost(){
   ghostWhy = '';
   if(last){
     const run = Math.hypot(ghostPos.x-last.x, ghostPos.z-last.z);
+    // What this peg would add to the bill. An estimate — it uses the ghost's own
+    // cut/fill for the whole segment rather than integrating it — but it's the
+    // same rate card as costBreakdown(), so the number the player watches while
+    // aiming is the number they get charged.
+    const d = el.cutFill;
+    const per = RAIL_PER_M + (d > BRIDGE_H ? TRESTLE_PER_M
+                            : d < -TUNNEL_D ? TUNNEL_PER_M
+                            : (Math.abs(d)*0.9 + d*d*0.55) * EARTH_RATE);
+    ghostMarginal = per * run;
     if(nodes.length>=2){
       const prev = nodes[nodes.length-2];
       const a = Math.atan2(last.z-prev.z, last.x-prev.x);
@@ -1534,10 +1639,18 @@ function updateGhost(){
         ? `A ${el.cutFill.toFixed(1)} m EMBANKMENT WON'T STAND`
         : `A ${(-el.cutFill).toFixed(1)} m CUTTING IS TOO DEEP`;
     }
-    else if(Math.abs(el.grade) > RULING_MAX){ ghostWhy = 'FORCED — NOTHING WILL CLIMB THIS'; }
+    else if(ghostMarginal > available()){
+      ghostValid=false;
+      ghostWhy = `£${Math.ceil(ghostMarginal - available()).toLocaleString()} SHORT — RUN THE LINE AND EARN IT`;
+    }
+    // Epsilon matters: the clamp lands grades EXACTLY on the ruling, and float
+    // error makes 0.06 read as 0.0600000001 — without it, every legal line at
+    // its own ruling grade is accused of being forced. Compare against the
+    // DECLARED ruling, since forcing past 4% on a 4% line is still forcing.
+    else if(Math.abs(el.grade) > ruling + 1e-6){ ghostWhy = 'FORCED — NOTHING WILL CLIMB THIS'; }
 
     const col = !ghostValid ? 0xd0533f
-      : Math.abs(el.grade) > RULING_MAX ? 0xd0533f
+      : Math.abs(el.grade) > ruling + 1e-6 ? 0xd0533f
       : Math.abs(el.grade) > WARN_GRADE || Math.abs(el.cutFill) > 2.2 ? 0xdfa63c : 0x7fbf5a;
     ghostLineMat.color.setHex(col);
     ghostLine.geometry.setFromPoints([
@@ -1604,6 +1717,9 @@ $('tUndo').onclick = undo;
 $('tClear').onclick = ()=>{ if(mode!=='lay') return; nodes.length=0; rebuildTrack(); rebuildPegs(); };
 $('tRun').onclick = ()=>{ mode==='lay' ? startRun() : stopRun(); };
 $('tLay').onclick = ()=>{ if(mode==='run') stopRun(); };
+// Settings were reachable only by Esc or the title card — invisible to anyone
+// who clicked past the opening.
+$('tSet').onclick = ()=>{ document.getElementById('settings').classList.remove('hide'); };
 
 // ───────────────────────────────────────────────────────────── tilt-shift
 const TiltShift = {
@@ -1700,7 +1816,10 @@ function finishBoard(){
   rebuildVillages();
   nodes.length = 0;
   ghostOffset = 0;
-  season = 0; seasonsHeld = [false,false,false,false];   // a new mountain, a new year
+  // a new mountain, a new year, a fresh grant
+  season = 0; seasonsHeld = [false,false,false,false];
+  funds = START_FUNDS; year = 1;
+  villages[0].pop = 140; villages[1].pop = 35;
   rebuildTrack();     // seeds dispH, the terrain mesh, and replants the trees
   rebuildPegs();
 }
@@ -1949,7 +2068,12 @@ window.__dbg = {
   setRuling:(g)=>{ ruling=g; resurvey(); refreshRulingSeg(); updateHUD(); },
   holdTable:()=>SEASONS.map(s=>({season:s.name, rail:s.rail,
                  holds:+(s.mu*adhesiveFrac(s.wagons)*100).toFixed(2)})),
-  advanceSeason,
+  advanceSeason, seasonLost,
+  money:()=>({ funds, line:curCost.total, free:available(), inc:seasonIncome(),
+               year, pops:villages.map(v=>v.pop), cost:{...curCost} }),
+  ghost:()=>({ why:ghostWhy, valid:ghostValid, marginal:+ghostMarginal.toFixed(0),
+               pos:ghostPos }),
+  setFunds:(f)=>{ funds=f; updateHUD(); },
   // lay a route through [x,z] pairs using the same survey rules as the mouse
   autoline:(pts, override)=>{
     nodes.length=0;

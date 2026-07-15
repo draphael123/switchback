@@ -30,6 +30,32 @@ model on a table in a dark room. The pillars, locked by interview:
 - **Tension** — terrain engineering. The mountain fights you.
 - **Play** — build, then watch. No driving.
 
+## The economy
+
+Money is what makes the ruling grade a business decision rather than a taste.
+
+**You pay for**: rail per metre, earthworks (spoil goes as depth², so one deep
+cutting is far worse than two shallow ones), trestles over gaps, tunnels through
+spurs. The bill is itemised live while you survey.
+
+**You earn** tax from the villages your line serves — *but only for the seasons
+it actually runs*. That is what makes the weather economic:
+
+| Line | Cost | Seasons it runs | Tax / year |
+|---|---|---|---|
+| **6% bold** | £959 | 2 (summer, autumn) | £700 |
+| **4% gentle** | £2,243 | 4 | £1,400 |
+
+The opening grant is **£1,200** — enough for the bold line, nowhere near the
+gentle one. So the arc is: build cheap, run it, earn, and buy your way to the
+all-weather line (~1.5 years). Towns also grow by how well they're *served*
+(~2% per season the line ran), so the gentle line earns twice **and** compounds
+twice.
+
+Capital is **committed, not burned** — tearing up the line frees the money back.
+Forgiving on purpose: the decision worth having is which line to build, not
+whether you dare experiment.
+
 ## The decision: ruling grade vs the weather
 
 The loop's teeth. You **declare** how hard your line will ever climb (6% / 5% /
@@ -219,6 +245,28 @@ Documented because each one produced a *plausible-looking* wrong result:
 13. **Measure the ruling grade over the window the physics integrates.** The
     grade under the whole *rake* (`SUSTAIN_WIN`), not under a point — otherwise
     "worst sustained" on the HUD isn't the number that makes her slip.
+14. **Compare grades with an epsilon.** The clamp lands grades EXACTLY on the
+    ruling, and float error makes 0.06 read as 0.0600000001 — so `> RULING_MAX`
+    accused every legal line of being "FORCED". Compare to the *declared*
+    ruling + 1e-6.
+15. **Price the rate card by measuring real lines.** A first pass by feel put
+    tunnelling at £55/m and nothing was affordable — the cheapest line was
+    £1,948 against a £900 grant, and a 5% line came to £3,555 of which £2,501
+    was tunnel. Build a line, print the itemised bill, then set the rates.
+
+## Roadmap
+
+Next, in order:
+
+1. **Map expansion** — Cities:Skylines-style: buy the next tile at the board
+   edge. Heaviest refactor (terrain grid, baseboard, skirt, and the solvability
+   gate all assume one fixed board with one fixed pair of termini).
+2. **Rail types** — adhesion vs **rack/cog**: climbs 20%+, *cannot wheelslip* so
+   it's immune to frost, but costs a fortune per metre and crawls. One option
+   that interacts with grade, cost and weather at once.
+3. **Landmarks + building variety** — tarns, crags, waterfalls, ruins, quarries;
+   varied building types that restructure and grow tiers as rail serves them.
+4. **Villagers** — actual little people on the board.
 
 ## Roadmap
 
