@@ -30,6 +30,32 @@ model on a table in a dark room. The pillars, locked by interview:
 - **Tension** — terrain engineering. The mountain fights you.
 - **Play** — build, then watch. No driving.
 
+## Stations, and why they hurt
+
+**Rail alone earns nothing.** A village pays tax only if it has a **station** and
+the rail reaches its platform. Track running past a village is just track.
+
+And a platform cannot sit on a grade. A station needs ~18m of **level shelf** —
+but your line is climbing at its ruling grade *precisely where you want one*. So
+you hold **L** to lay level track through the village, and pay for it twice:
+
+- **In climb** — 18m where the line gains nothing, on a line already fighting
+  for every metre of run. You have to find that height back somewhere.
+- **In money** — cutting a level shelf into a 17% hillside roughly **doubles**
+  the price of the line (~£960 → ~£1,770 on a typical board).
+
+That's the whole idea: a building that fights the terrain is a design problem; a
+building you can plonk anywhere is a shop item.
+
+The siting rule is checked and explained — *"TRACK RUNS AT 6.0% HERE — A PLATFORM
+NEEDS LEVEL GROUND (HOLD L)"*.
+
+> **Design note.** Pinning track level automatically does *not* work, and it's a
+> trap worth remembering: the platform snap is opportunistic (it only fires when
+> the grade can already reach the platform), so widening its radius just makes
+> more pegs climb at 6% and fail. The shelf has to be a deliberate act with its
+> own verb.
+
 ## The economy
 
 Money is what makes the ruling grade a business decision rather than a taste.
@@ -41,13 +67,13 @@ spurs. The bill is itemised live while you survey.
 **You earn** tax from the villages your line serves — *but only for the seasons
 it actually runs*. That is what makes the weather economic:
 
-| Line | Cost | Seasons it runs | Tax / year |
+| Line | Cost (bare / with shelves) | Seasons it runs | Tax / year |
 |---|---|---|---|
-| **6% bold** | £959 | 2 (summer, autumn) | £700 |
-| **4% gentle** | £2,243 | 4 | £1,400 |
+| **6% bold** | £959 / ~£1,770 | 2 (summer, autumn) | £700 |
+| **4% gentle** | £2,243 / more | 4 | £1,400 |
 
-The opening grant is **£1,200** — enough for the bold line, nowhere near the
-gentle one. So the arc is: build cheap, run it, earn, and buy your way to the
+The opening grant is **£2,400** — enough for a bold line *and* its two stations
+(~£2,250), nowhere near a gentle one. So the arc is: build cheap, run it, earn, and buy your way to the
 all-weather line (~1.5 years). Towns also grow by how well they're *served*
 (~2% per season the line ran), so the gentle line earns twice **and** compounds
 twice.
@@ -131,6 +157,7 @@ platform height, not merely near it in plan.
 | | |
 |---|---|
 | **LMB** | lay a survey peg |
+| **L** | toggle **level** track — how you build a station shelf |
 | **Q / E** | cut / fill (bias the formation down or up) |
 | **R** | reset the held height |
 | **Shift** + click | force a peg, ignoring the grade clamp (this is how you stall a train) |
@@ -267,6 +294,16 @@ Next, in order:
 3. **Landmarks + building variety** — tarns, crags, waterfalls, ruins, quarries;
    varied building types that restructure and grow tiers as rail serves them.
 4. **Villagers** — actual little people on the board.
+
+Held back deliberately:
+
+- **Water towers** (loco range ~180m, so the long gentle line needs a water stop
+  — the downside the gentle line currently lacks) and **sand houses** (buy
+  adhesion at one bank). Both good; both wanted a session of their own.
+- **Snow sheds** — they'd let you buy your way out of the weather trade-off,
+  which is the best thing in the game. Not until the economy is deeper.
+- **Signal boxes, passing loops** — nothing to signal with one train.
+- **Goods sheds** — a pure income multiplier is a number with a roof.
 
 ## Roadmap
 

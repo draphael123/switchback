@@ -164,6 +164,7 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
 
   <div id="tools" class="panel">
     <button class="tool on" id="tLay">LAY TRACK</button>
+    <button class="tool" id="tStn">STATION</button>
     <button class="tool" id="tUndo">UNDO</button>
     <button class="tool" id="tClear">CLEAR</button>
     <button class="tool" id="tRun" disabled>▶ RUN</button>
@@ -171,10 +172,10 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   </div>
 
   <div id="cash" class="panel">
-    <div id="cashTop"><span>FUNDS</span><span id="cashVal">£1,200</span></div>
+    <div id="cashTop"><span>FUNDS</span><span id="cashVal">£2,400</span></div>
     <div class="rule2"></div>
     <div class="crow"><span class="k">THIS LINE</span><span class="v" id="cLine">£0</span></div>
-    <div class="crow"><span class="k">LEFT TO SPEND</span><span class="v" id="cFree">£1,200</span></div>
+    <div class="crow"><span class="k">LEFT TO SPEND</span><span class="v" id="cFree">£2,400</span></div>
     <div class="crow"><span class="k">TAX / SEASON</span><span class="v" id="cInc">£0</span></div>
     <div id="cBreak"></div>
   </div>
@@ -213,7 +214,7 @@ window.addEventListener('unhandledrejection', e => { window.__err = String((e.re
   </div>
 
   <div id="keys" class="panel">
-    <b>LMB</b> lay a sleeper &nbsp;·&nbsp; <b>Q/E</b> cut / fill &nbsp;·&nbsp; <b>R</b> reset height<br>
+    <b>LMB</b> lay a sleeper &nbsp;·&nbsp; <b>Q/E</b> cut / fill &nbsp;·&nbsp; <b>R</b> reset height &nbsp;·&nbsp; <b>L</b> level (station shelf)<br>
     <b>RMB</b> orbit &nbsp;·&nbsp; <b>MMB</b> pan &nbsp;·&nbsp; <b>WHEEL</b> zoom &nbsp;·&nbsp; <b>BACKSPACE</b> undo &nbsp;·&nbsp; <b>ENTER</b> run
   </div>
 
@@ -325,6 +326,16 @@ const BRIDGE_H  = 1.9;     // fill deeper than this becomes a trestle instead
 const TUNNEL_D  = 3.0;     // cut deeper than this becomes a tunnel instead
 const MAX_EW    = 5.0;     // deepest cutting / highest embankment that's buildable
 const STATION_R = 3.2;     // how close a peg must be to count as a terminus
+// A platform can't sit on a grade — a station needs a LEVEL SHELF, and you have
+// to BUILD it. Pinning track level automatically doesn't work: the platform snap
+// is opportunistic (it only fires when the grade can already reach), so widening
+// it just makes more pegs climb at 6% and fail. The shelf is a deliberate act —
+// hold L and lay level track. That is the station's real price: ~18m where the
+// line gains NO height, on a line already fighting for run, plus the cut to hold
+// level across rising ground. The village's own pad is only ~5m of that.
+const PLATFORM_HALF = 9;   // shelf half-length either side of the platform
+const LEVEL_MAX = 0.012;   // 1.2% — the steepest a platform may sit on
+const STATION_COST = 240;
 // Vertical stack at the rail head, all relative to a peg's y:
 //   formation (terrain) −0.03 · ballast 0.00 · sleepers 0.00–0.06 · rails 0.075
 // Any mismatch here shows up as track visibly hovering over its own trackbed.
@@ -814,6 +825,92 @@ function refreshTrees(){
   leaves.instanceMatrix.needsUpdate = true;
 }
 
+// ───────────────────────────────────────────────────────────── stations
+// Built beside the line where it runs level through a village. The platform is
+// placed on the nearest point of track, so it sits with the railway rather than
+// with the houses.
+const stationGroup = new THREE.Group(); scene.add(stationGroup);
+function trackPointNearest(site){
+  if(samples.length < 2) return null;
+  let bi = -1, bd = 1e9;
+  for(let i=0;i<samples.length;i++){
+    const d = Math.hypot(samples[i].x-site.x, samples[i].z-site.z);
+    if(d < bd){ bd = d; bi = i; }
+  }
+  return bi < 0 ? null : { i:bi, p:samples[bi], d:bd };
+}
+function makeStation(site){
+  const spot = trackPointNearest(site);
+  if(!spot) return null;
+  const g = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ color:0xbdb3a0, roughness:0.9 });
+  const tim   = new THREE.MeshStandardMaterial({ color:0x6b4a2e, roughness:0.8 });
+  const roofM = new THREE.MeshStandardMaterial({ color:0x3d4a52, roughness:0.7 });
+  // side vector, so the platform lies alongside the rails
+  const a = samples[Math.max(0,spot.i-2)], b = samples[Math.min(samples.length-1,spot.i+2)];
+  const tan = new THREE.Vector3().subVectors(b,a).setY(0).normalize();
+  const side = new THREE.Vector3().crossVectors(tan, new THREE.Vector3(0,1,0)).normalize();
+  const yaw = Math.atan2(tan.x, tan.z);
+  const base = spot.p;
+  const put = (mesh, off, up)=>{
+    mesh.position.set(base.x + side.x*off, base.y + up, base.z + side.z*off);
+    mesh.rotation.y = yaw; mesh.castShadow = mesh.receiveShadow = true; g.add(mesh);
+  };
+  put(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.22, 7.0), stone), 1.25, 0.11);
+  put(new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.75, 2.4), tim),   1.35, 0.60);
+  put(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 2.9), roofM), 1.35, 1.02);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.075,8,6),
+    new THREE.MeshStandardMaterial({ color:0xfff0c0, emissive:0xffc46a, emissiveIntensity:2.2 }));
+  put(lamp, 1.25, 0.95);
+  const pl = new THREE.PointLight(0xffc46a, 3.2, 6, 2);
+  pl.position.set(base.x + side.x*1.25, base.y+0.95, base.z + side.z*1.25); g.add(pl);
+  return g;
+}
+function rebuildStations(){
+  for(const c of [...stationGroup.children]){
+    stationGroup.remove(c);
+    c.traverse(o=>{ if(o.isMesh) o.geometry.dispose(); });
+  }
+  for(const v of villages){
+    if(!v.station) continue;
+    const s = makeStation(v.site());
+    if(s) stationGroup.add(s);
+  }
+}
+// The shelf: how level is the track through this village, over a platform's
+// length? Returns the worst grade found, which is the number to show the player.
+function shelfGrade(site){
+  const spot = trackPointNearest(site);
+  if(!spot || spot.d > STATION_R) return null;
+  const s0 = cumLen[spot.i];
+  let worst = 0;
+  for(let i=0;i<samples.length;i++){
+    if(Math.abs(cumLen[i] - s0) > PLATFORM_HALF) continue;
+    worst = Math.max(worst, Math.abs(gradeCols[i] || 0));
+  }
+  return { worst, spot };
+}
+// Why you can and can't put a station here — the answer the player needs.
+function stationCheck(v){
+  if(v.station)          return { ok:false, why:`${v.name} ALREADY HAS A STATION` };
+  if(!villageReached(v)) return { ok:false, why:`NO RAIL AT ${v.name}'S PLATFORM YET` };
+  const sh = shelfGrade(v.site());
+  if(!sh)                return { ok:false, why:`THE LINE DOESN'T REACH ${v.name}` };
+  if(sh.worst > LEVEL_MAX) return { ok:false,
+    why:`TRACK RUNS AT ${(sh.worst*100).toFixed(1)}% HERE — A PLATFORM NEEDS LEVEL GROUND (HOLD L)` };
+  if(STATION_COST > available()) return { ok:false,
+    why:`£${(STATION_COST-available()).toLocaleString()} SHORT FOR A STATION` };
+  return { ok:true, why:`BUILD A STATION AT ${v.name} — £${STATION_COST}` };
+}
+function nearestVillage(x,z){
+  let best=null, bd=1e9;
+  for(const v of villages){
+    const s=v.site(), d=Math.hypot(x-s.x, z-s.z);
+    if(d<bd){ bd=d; best=v; }
+  }
+  return bd < STATION_R+5 ? best : null;
+}
+
 // ───────────────────────────────────────────────────────────── villages
 function makeVillage(site, nHouses, seed){
   const g = new THREE.Group();
@@ -882,6 +979,10 @@ function pegElevation(x, z, prev, offset, override){
   // railhead gives back climb it already paid for and nothing ever arrives.
   // Q (a negative offset) is the deliberate opt-out when you DO want to descend.
   const freeY = (p) => {
+    // LEVEL: hold the railhead exactly where it is and let cut and fill carry
+    // it across. This is how a station shelf gets built — and it costs you
+    // every metre of climb you would otherwise have made.
+    if(levelHold && !override) return p.y;
     let t = ground + offset;
     if(!override && offset >= 0) t = Math.max(t, p.y);
     const mr = ruling * Math.hypot(x-p.x, z-p.z);
@@ -1151,6 +1252,7 @@ function rebuildTrack(){
   curCost = costBreakdown();
   applyEarthworks();
   refreshTrees();
+  rebuildStations();   // platforms sit ON the track, so they follow it
   updateHUD();
 }
 
@@ -1292,7 +1394,7 @@ function stepPuffs(dt){
 }
 
 // ───────────────────────────────────────────────────────────── sim state
-let mode = 'lay';            // 'lay' | 'run'
+let mode = 'lay';            // 'lay' | 'station' | 'run'
 let ghostOffset = 0;         // extra height the surveyor is deliberately holding
 let ghostPos = null;         // snapped world point under cursor
 let ghostGrade = 0, ghostDeflect = 0, ghostValid = false;
@@ -1300,6 +1402,7 @@ let ghostEl = null;          // last pegElevation() result under the cursor
 let ghostWhy = '';           // why the peg can't go here
 let ghostMarginal = 0;       // what this next peg would add to the bill
 let shiftHeld = false;       // override: ignore the grade clamp and force it
+let levelHold = false;       // L: lay dead-level track (how you build a shelf)
 
 const run = { s:0, v:0, dir:1, stalled:false, wait:0, done:false, arrived:0 };
 
@@ -1308,11 +1411,11 @@ const run = { s:0, v:0, dir:1, stalled:false, wait:0, done:false, arrived:0 };
 function atPlatform(n, site){
   return Math.hypot(n.x-site.x, n.z-site.z) < STATION_R && Math.abs(n.y-site.h) < 0.15;
 }
+// Any peg at each platform, not just the line's ends — a village can be a
+// through station, and it keeps working when the map grows past it.
 function connected(){
   if(nodes.length<2) return false;
-  const a = nodes[0], b = nodes[nodes.length-1];
-  return (atPlatform(a,siteA) && atPlatform(b,siteB)) ||
-         (atPlatform(a,siteB) && atPlatform(b,siteA));
+  return nodes.some(n=>atPlatform(n,siteA)) && nodes.some(n=>atPlatform(n,siteB));
 }
 
 // ───────────────────────────────────────────────────────────── the economy
@@ -1326,7 +1429,12 @@ function connected(){
 //   4% gentle ~£2,200 — about 3 years of running the bold line to afford
 // Keep the four items in the same ballpark as each other; an early pass had
 // tunnelling at 55/m, which made a 5% line £3,555 of which £2,501 was tunnel.
-const START_FUNDS   = 1200;
+// Measured, not guessed: a bold line with the two level shelves cut for its
+// stations runs ~£1,770, plus £480 of stations = ~£2,250. The grant has to
+// cover that or the player is stuck on move one. Shelves roughly double the
+// price of a line — cutting 18m of level ground into a 17% hillside is not
+// cheap, which is exactly the point.
+const START_FUNDS   = 2400;
 const RAIL_PER_M    = 2.2;
 const EARTH_RATE    = 0.55;   // spoil shifted, per metre of formation
 const TRESTLE_PER_M = 10;     // timber over a gap
@@ -1359,11 +1467,15 @@ const lineCost = ()=> curCost.total;
 const available = ()=> funds - lineCost();
 
 const villages = [
-  { site:()=>siteA, name:'LOWTHWAITE', pop:140 },
-  { site:()=>siteB, name:'CRAG END',   pop:35  },
+  { site:()=>siteA, name:'LOWTHWAITE', pop:140, station:false },
+  { site:()=>siteB, name:'CRAG END',   pop:35,  station:false },
 ];
-const seasonIncome = ()=> connected()
-  ? Math.round(villages.reduce((a,v)=> a + v.pop*TAX_PER_POP, 0)) : 0;
+// A village pays tax only if it has a STATION and the rail actually reaches its
+// platform. Track running past a village earns nothing — you have to stop there.
+const villageReached = (v)=> nodes.some(n=> atPlatform(n, v.site()));
+const villageEarns   = (v)=> v.station && villageReached(v);
+const seasonIncome = ()=>
+  Math.round(villages.reduce((a,v)=> a + (villageEarns(v) ? v.pop*TAX_PER_POP : 0), 0));
 
 function startRun(){
   if(nodes.length<2) return;
@@ -1524,7 +1636,8 @@ function updateHUD(){
   const cf = ghostEl ? ghostEl.cutFill : 0;
   const label = Math.abs(cf) < 0.06 ? 'ON GRADE'
     : (cf > 0 ? '+' : '−') + Math.abs(cf).toFixed(1) + ' m ' + (cf > 0 ? 'FILL' : 'CUT');
-  $('sOffset').textContent = ghostPos ? label : '—';
+  $('sOffset').textContent = levelHold ? 'LEVEL — ' + (ghostPos ? label : '0.0 m')
+                                       : (ghostPos ? label : '—');
   $('sOffset').className = 'v ' + (Math.abs(cf) > MAX_EW ? 'bad' : Math.abs(cf) > 2.2 ? 'warn' : '');
   $('sLen').textContent = Math.round(totalLen) + ' m';
   $('sCost').textContent = '£' + curCost.total.toLocaleString();
@@ -1545,8 +1658,14 @@ function updateHUD(){
   if(curCost.earth)   bits.push(`earthworks £${curCost.earth.toLocaleString()}`);
   if(curCost.trestle) bits.push(`trestles £${curCost.trestle.toLocaleString()}`);
   if(curCost.tunnel)  bits.push(`tunnel £${curCost.tunnel.toLocaleString()}`);
-  $('cBreak').textContent = bits.length ? bits.join(' · ')
-    : `Lowthwaite ${villages[0].pop} souls · Crag End ${villages[1].pop} · year ${year}`;
+  const stn = villages.map(v=> `${v.name.split(' ')[0]} ${v.station ? (villageEarns(v)?'●':'◐') : '○'}`).join(' · ');
+  $('cBreak').innerHTML = (bits.length ? bits.join(' · ') + '<br>' : '')
+    + `yr ${year} · ${stn} · ${villages[0].pop+villages[1].pop} souls`;
+  // in station mode the ghost has advice rather than a peg — surface it
+  if(mode==='station' && ghostWhy){
+    $('objState').textContent = ghostWhy;
+    $('objState').style.color = ghostWhy.startsWith('BUILD') ? 'var(--good)' : 'var(--warn)';
+  }
 
   updateWeather();
   const conn = connected();
@@ -1597,6 +1716,13 @@ const ptr = new THREE.Vector2();
 let downAt = null;
 
 function updateGhost(){
+  if(mode === 'station'){
+    // hovering a village tells you the verdict before you spend anything
+    ghostGroup.visible = false;
+    const v = ghostPos ? nearestVillage(ghostPos.x, ghostPos.z) : null;
+    ghostWhy = v ? stationCheck(v).why : 'HOVER A VILLAGE TO SITE A STATION';
+    return;
+  }
   if(mode!=='lay' || !ghostPos){ ghostGroup.visible = mode==='lay'; return; }
   ghostGroup.visible = true;
   const last = nodes.length ? nodes[nodes.length-1] : null;
@@ -1681,7 +1807,24 @@ renderer.domElement.addEventListener('pointerup', e=>{
   if(e.button!==0 || !downAt) return;
   const moved = Math.hypot(e.clientX-downAt.x, e.clientY-downAt.y);
   downAt = null;
-  if(moved > 5 || mode!=='lay' || !ghostPos) return;
+  if(moved > 5 || !ghostPos) return;
+  if(mode === 'station'){
+    const v = nearestVillage(ghostPos.x, ghostPos.z);
+    if(!v){ banner('CLICK ON A VILLAGE TO PUT A STATION THERE', true, 'bad'); }
+    else {
+      const chk = stationCheck(v);
+      if(!chk.ok) banner(chk.why, true, 'bad');
+      else {
+        v.station = true; funds -= STATION_COST;
+        rebuildStations();
+        banner(`${v.name} STATION OPEN — £${STATION_COST} · THE TAX CAN COME IN NOW`, true, 'good');
+        updateHUD();
+      }
+    }
+    clearTimeout(bannerTimer); bannerTimer = setTimeout(()=>banner('',false), 3000);
+    return;
+  }
+  if(mode!=='lay') return;
   if(!ghostValid && nodes.length){
     banner(ghostWhy || 'CANNOT BUILD THERE', true, 'bad');
     clearTimeout(bannerTimer); bannerTimer = setTimeout(()=>banner('',false), 3000);
@@ -1706,6 +1849,7 @@ addEventListener('keydown', e=>{
   if(e.key==='q'||e.key==='Q'){ ghostOffset = clamp(ghostOffset - 0.2, -6, 6); updateGhost(); updateHUD(); }
   if(e.key==='e'||e.key==='E'){ ghostOffset = clamp(ghostOffset + 0.2, -6, 6); updateGhost(); updateHUD(); }
   if(e.key==='r'||e.key==='R'){ ghostOffset = 0; updateGhost(); updateHUD(); }
+  if((e.key==='l'||e.key==='L') && !e.repeat){ levelHold = !levelHold; updateGhost(); updateHUD(); }
   if(e.key==='Backspace'){ e.preventDefault(); undo(); }
   if(e.key==='Enter'){ mode==='lay' ? startRun() : stopRun(); }
 });
@@ -1716,7 +1860,16 @@ function undo(){ if(!nodes.length||mode!=='lay') return; nodes.pop(); rebuildTra
 $('tUndo').onclick = undo;
 $('tClear').onclick = ()=>{ if(mode!=='lay') return; nodes.length=0; rebuildTrack(); rebuildPegs(); };
 $('tRun').onclick = ()=>{ mode==='lay' ? startRun() : stopRun(); };
-$('tLay').onclick = ()=>{ if(mode==='run') stopRun(); };
+function setMode(m){
+  if(mode==='run' && m!=='run') stopRun();
+  mode = m;
+  $('tLay').classList.toggle('on', m==='lay');
+  $('tStn').classList.toggle('on', m==='station');
+  ghostGroup.visible = (m==='lay');
+  updateGhost(); updateHUD();
+}
+$('tLay').onclick = ()=> setMode('lay');
+$('tStn').onclick = ()=> setMode(mode==='station' ? 'lay' : 'station');
 // Settings were reachable only by Esc or the title card — invisible to anyone
 // who clicked past the opening.
 $('tSet').onclick = ()=>{ document.getElementById('settings').classList.remove('hide'); };
@@ -1820,6 +1973,8 @@ function finishBoard(){
   season = 0; seasonsHeld = [false,false,false,false];
   funds = START_FUNDS; year = 1;
   villages[0].pop = 140; villages[1].pop = 35;
+  for(const v of villages) v.station = false;
+  rebuildStations();
   rebuildTrack();     // seeds dispH, the terrain mesh, and replants the trees
   rebuildPegs();
 }
@@ -1955,6 +2110,12 @@ const TUT = [
        board, curve back and climb again. Roughly <b>${'${NEED}'}m</b> of track
        does it. <b>Q</b>/<b>E</b> force a cutting or embankment to hold height.`,
     done:()=> connected() },
+  { t:`Rail alone earns nothing — you need <b>STATIONS</b>. But a platform can't
+       sit on a grade, and your line is climbing at ${'${RUL}'}% right where you
+       want one. Hold <b>L</b> to lay <b>level</b> track through the village
+       (~18m of it), then use the <b>STATION</b> tool. Levelling costs you all
+       the climb you'd have made — so you'll need more run to get back.`,
+    done:()=> villages.some(v=>v.station) },
   { t:`The line is open. Press <b>ENTER</b> and watch her work.`,
     done:()=> mode==='run' },
   { t:`She's through — and now <b>the year turns</b>. Wet leaves and frost won't
@@ -2073,6 +2234,29 @@ window.__dbg = {
                year, pops:villages.map(v=>v.pop), cost:{...curCost} }),
   ghost:()=>({ why:ghostWhy, valid:ghostValid, marginal:+ghostMarginal.toFixed(0),
                pos:ghostPos }),
+  stations:()=>villages.map(v=>({ name:v.name, built:v.station, reached:villageReached(v),
+                                  earns:villageEarns(v), pop:v.pop })),
+  buildStation:(i)=>{ const v=villages[i]; const c=stationCheck(v);
+    if(c.ok){ v.station=true; funds-=STATION_COST; rebuildStations(); updateHUD(); }
+    return c; },
+  setMode, mode:()=>mode,
+  setLevel:(b)=>{ levelHold=!!b; },
+  shelf:(i)=>{ const s=shelfGrade(villages[i].site());
+               return s ? {worst:+(s.worst*100).toFixed(2), dist:+s.spot.d.toFixed(2)} : null; },
+  // lay a route where a trailing tail of pegs is laid LEVEL (the shelf)
+  autolineShelf:(pts, tailLen)=>{
+    nodes.length=0; levelHold=false;
+    for(let k=0;k<pts.length;k++){
+      levelHold = (k >= pts.length - tailLen);
+      const last = nodes.length ? nodes[nodes.length-1] : null;
+      const el = pegElevation(pts[k][0], pts[k][1], last, 0, false);
+      nodes.push({x:pts[k][0], y:el.y, z:pts[k][1]});
+    }
+    levelHold=false;
+    rebuildTrack(); rebuildPegs();
+    return { pegs:nodes.length, totalLen:+totalLen.toFixed(1), ruling:+(rulingGrade*100).toFixed(2),
+             connected:connected(), cost:curCost.total };
+  },
   setFunds:(f)=>{ funds=f; updateHUD(); },
   // lay a route through [x,z] pairs using the same survey rules as the mouse
   autoline:(pts, override)=>{
