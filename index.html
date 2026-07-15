@@ -1634,18 +1634,25 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const tsH = new ShaderPass(TiltShift); composer.addPass(tsH);
 const tsV = new ShaderPass(TiltShift); composer.addPass(tsV);
-function sizePasses(){
-  tsH.uniforms.dir.value.set(1/innerWidth, 0);
-  tsV.uniforms.dir.value.set(0, 1/innerHeight);
-}
-sizePasses();
 
-addEventListener('resize', ()=>{
-  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
-  sizePasses();
-});
+// Size watchdog. A page that loads in a zero-size context — a background tab, a
+// hidden iframe, an embed that lays out late — sizes the renderer to 0x0 and
+// then never receives a resize event, so it renders a permanent black screen
+// with no way back. Cheap to just re-check every frame and early-out. Sibling
+// of the RAF watchdog below; same failure mode, same fix.
+let lastW = -1, lastH = -1;
+function resize(){
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  if(w === lastW && h === lastH) return;
+  lastW = w; lastH = h;
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  tsH.uniforms.dir.value.set(1/w, 0);
+  tsV.uniforms.dir.value.set(0, 1/h);
+}
+addEventListener('resize', resize);
+resize();
 
 // ───────────────────────────────────────────────────────────── boot + loop
 // ───────────────────────────────────────────────────────────── board generator
@@ -1908,6 +1915,7 @@ const clock = new THREE.Clock();
 let acc = 0;
 function frame(){
   const dt = Math.min(clock.getDelta(), 0.05);
+  resize();                       // catches a viewport that only exists later
   controls.update();
   if(mode==='run') stepRun(dt);
   stepPuffs(dt);
